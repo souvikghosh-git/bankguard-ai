@@ -228,7 +228,11 @@ class RunContext:
         self._error: str | None = None
         self._tool_call_hashes: set[str] = set()   # duplicate detection
 
-        # Gateway (lazy init to avoid circular import at module load)
+        # Observability handles — set by AgentRunner.stream_investigation()
+        self._langfuse_trace: Any = None
+        self._otel_span: Any = None
+
+        # Gateway (lazy init)
         self._gateway: Any = None
 
     def _get_gateway(self) -> Any:
@@ -304,11 +308,26 @@ class RunContext:
                 timeout=settings.model_timeout_seconds,
             )
 
-        # Record token usage
+        # Record token usage and cost
         usage = getattr(response, "usage", None)
         in_tok  = getattr(usage, "prompt_tokens",     est_input) if usage else est_input
         out_tok = getattr(usage, "completion_tokens", 100)       if usage else 100
-        self.budget.record_llm_call(in_tok, out_tok)
+        cost = self.budget.record_llm_call(in_tok, out_tok)
+
+        # Fire observability — Prometheus counters + Langfuse generation
+        try:
+            from observability.telemetry import record_llm_call
+            langfuse_trace = getattr(self, "_langfuse_trace", None)
+            record_llm_call(
+                model=chosen_model,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+                cost_usd=cost,
+                agent_node="llm",
+                langfuse_trace=langfuse_trace,
+            )
+        except Exception:
+            pass  # telemetry must never break the agent path
 
         log.info(
             "llm_invoked",
@@ -316,6 +335,7 @@ class RunContext:
             model=chosen_model,
             input_tokens=in_tok,
             output_tokens=out_tok,
+            cost_usd=round(cost, 6),
         )
         return response
 

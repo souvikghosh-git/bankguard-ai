@@ -1,28 +1,41 @@
 version: "3.9"
 
-# BankGuard AI — Full stack via Docker Compose
+# BankGuard AI — Full production stack via Docker Compose
 # Target: EC2 t4g.xlarge (4 vCPU / 16 GB) in ap-south-1
-# All services share one bridge network: bankguard-net
+#
+# SECURITY MODEL:
+#   - Two networks:
+#       bankguard-internal  →  service-to-service only, NOT routable from host
+#       bankguard-edge      →  only Caddy sits on this network + the host bridge
+#   - ALL service ports are bound to 127.0.0.1 (loopback) on the host.
+#     This means even if the EC2 Security Group is misconfigured, the processes
+#     cannot be reached from outside the instance.
+#   - Only Caddy exposes 80/443 to the public (via the EC2 Security Group).
+#   - Temporal, OPA, Prometheus, Loki, OTLP collector, Grafana are reachable
+#     ONLY via docker-internal DNS names, never from the internet.
 
 networks:
-  bankguard-net:
+  # Internal mesh — all backend services communicate here
+  bankguard-internal:
+    driver: bridge
+    internal: true          # <-- blocks external routing at the docker level
+
+  # Edge — only Caddy and API live here so Caddy can proxy to API
+  bankguard-edge:
     driver: bridge
 
 volumes:
   postgres_data:
   valkey_data:
-  langfuse_data:
   prometheus_data:
   grafana_data:
   loki_data:
   temporal_data:
-  otel_data:
 
 services:
 
   # ----------------------------------------------------------------
   # PostgreSQL + pgvector
-  # Stores: cases, transactions, agent memory, embeddings
   # ----------------------------------------------------------------
   postgres:
     image: pgvector/pgvector:pg16
@@ -31,14 +44,15 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-bankguard}
       POSTGRES_USER: ${POSTGRES_USER:-bankguard}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bankguard_dev_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    # Bind to loopback only — not reachable from outside the instance
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     networks:
-      - bankguard-net
+      - bankguard-internal
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bankguard}"]
       interval: 10s
@@ -50,20 +64,19 @@ services:
           memory: 2G
 
   # ----------------------------------------------------------------
-  # Valkey (Redis-compatible OSS cache)
-  # Stores: working memory, session state, rate-limit counters
+  # Valkey (Redis-compatible OSS)
   # ----------------------------------------------------------------
   valkey:
     image: valkey/valkey:7-alpine
     container_name: bankguard-valkey
     restart: unless-stopped
-    command: valkey-server --save 60 1 --loglevel warning
+    command: valkey-server --save 60 1 --loglevel warning --bind 0.0.0.0 --protected-mode no
     volumes:
       - valkey_data:/data
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     networks:
-      - bankguard-net
+      - bankguard-internal
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
@@ -75,7 +88,7 @@ services:
           memory: 512M
 
   # ----------------------------------------------------------------
-  # Temporal OSS (durable workflows + HITL)
+  # Temporal OSS (durable HITL workflows)
   # ----------------------------------------------------------------
   temporal:
     image: temporalio/auto-setup:1.25
@@ -85,12 +98,13 @@ services:
       - DB=postgresql
       - DB_PORT=5432
       - POSTGRES_USER=${POSTGRES_USER:-bankguard}
-      - POSTGRES_PWD=${POSTGRES_PASSWORD:-bankguard_dev_password}
+      - POSTGRES_PWD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       - POSTGRES_SEEDS=postgres
+    # gRPC port — internal only
     ports:
-      - "7233:7233"
+      - "127.0.0.1:7233:7233"
     networks:
-      - bankguard-net
+      - bankguard-internal
     depends_on:
       postgres:
         condition: service_healthy
@@ -105,34 +119,32 @@ services:
     restart: unless-stopped
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=http://localhost:3001
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8088
     ports:
-      - "8088:8080"
+      - "127.0.0.1:8088:8080"
     networks:
-      - bankguard-net
+      - bankguard-internal
     depends_on:
       - temporal
 
   # ----------------------------------------------------------------
-  # Langfuse OSS (LLM/agent observability)
+  # Langfuse OSS (LLM tracing)
   # ----------------------------------------------------------------
   langfuse:
     image: langfuse/langfuse:2
     container_name: bankguard-langfuse
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-bankguard}:${POSTGRES_PASSWORD:-bankguard_dev_password}@postgres:5432/${POSTGRES_DB:-bankguard}
-      NEXTAUTH_SECRET: ${APP_SECRET_KEY:-change-me-secret-32chars-minimum!}
-      SALT: ${APP_SECRET_KEY:-change-me-salt-32chars-minimum!!}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bankguard}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-bankguard}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?LANGFUSE_NEXTAUTH_SECRET must be set}
+      SALT: ${LANGFUSE_SALT:?LANGFUSE_SALT must be set}
       NEXTAUTH_URL: http://localhost:3000
-      LANGFUSE_SECRET: ${LANGFUSE_SECRET_KEY:-sk-lf-dev}
-      LANGFUSE_PUBLIC: ${LANGFUSE_PUBLIC_KEY:-pk-lf-dev}
       TELEMETRY_ENABLED: "false"
       LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     networks:
-      - bankguard-net
+      - bankguard-internal
     depends_on:
       postgres:
         condition: service_healthy
@@ -151,12 +163,13 @@ services:
     volumes:
       - ./infrastructure/otel/otel-collector.yaml:/etc/otel-collector.yaml:ro
     command: ["--config=/etc/otel-collector.yaml"]
+    # OTLP ports — internal only; API container pushes over docker DNS
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "8889:8889"   # Prometheus metrics scrape
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:8889:8889"
     networks:
-      - bankguard-net
+      - bankguard-internal
     deploy:
       resources:
         limits:
@@ -177,10 +190,11 @@ services:
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=30d"
       - "--web.enable-lifecycle"
+      - "--web.listen-address=0.0.0.0:9090"
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     networks:
-      - bankguard-net
+      - bankguard-internal
     deploy:
       resources:
         limits:
@@ -195,15 +209,17 @@ services:
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: ${APP_SECRET_KEY:-bankguard_grafana}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
     ports:
-      - "3002:3000"
+      - "127.0.0.1:3002:3000"
     networks:
-      - bankguard-net
+      - bankguard-internal
     depends_on:
       - prometheus
       - loki
@@ -224,16 +240,16 @@ services:
       - ./infrastructure/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
     command: -config.file=/etc/loki/local-config.yaml
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"
     networks:
-      - bankguard-net
+      - bankguard-internal
     deploy:
       resources:
         limits:
           memory: 256M
 
   # ----------------------------------------------------------------
-  # OPA (Open Policy Agent — authorization)
+  # OPA (Open Policy Agent — tool authorization)
   # ----------------------------------------------------------------
   opa:
     image: openpolicyagent/opa:0.68.0
@@ -245,12 +261,12 @@ services:
       - "run"
       - "--server"
       - "--addr=0.0.0.0:8181"
-      - "--log-level=info"
+      - "--log-level=error"         # reduce noise; use metrics for health
       - "/policies"
     ports:
-      - "8181:8181"
+      - "127.0.0.1:8181:8181"
     networks:
-      - bankguard-net
+      - bankguard-internal
     deploy:
       resources:
         limits:
@@ -273,24 +289,25 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OPA_URL: http://opa:8181
       TEMPORAL_HOST: temporal:7233
-    ports:
-      - "8000:8000"
+    # API is NOT exposed directly to the internet; Caddy proxies to it
+    expose:
+      - "8000"
     networks:
-      - bankguard-net
+      - bankguard-internal
+      - bankguard-edge
     depends_on:
       postgres:
         condition: service_healthy
       valkey:
         condition: service_healthy
-    volumes:
-      - .:/app
     deploy:
       resources:
         limits:
           memory: 3G
 
   # ----------------------------------------------------------------
-  # Caddy (reverse proxy + TLS)
+  # Caddy — ONLY service with public ports
+  # Terminates TLS; reverse-proxies /api, /ws, / to internal services
   # ----------------------------------------------------------------
   caddy:
     image: caddy:2.8-alpine
@@ -298,10 +315,22 @@ services:
     restart: unless-stopped
     volumes:
       - ./infrastructure/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
     ports:
-      - "80:80"
-      - "443:443"
+      - "80:80"     # HTTP → redirect to HTTPS
+      - "443:443"   # HTTPS — the ONLY public port
     networks:
-      - bankguard-net
+      - bankguard-edge
     depends_on:
       - api
+
+volumes:
+  postgres_data:
+  valkey_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  temporal_data:
+  caddy_data:
+  caddy_config:

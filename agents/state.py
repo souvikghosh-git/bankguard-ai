@@ -88,6 +88,12 @@ class AgentState(MessagesState):
     reviewer_approved: bool
     reviewer_concerns: list[str]
 
+    # ── Evidence delta tracking ───────────────────────────────────────────
+    # Snapshot of len(evidence) at the START of each PLAN cycle.
+    # supervisor_evaluate_node subtracts this from current len(evidence)
+    # to detect zero-delta cycles (NO_NEW_EVIDENCE stopping condition).
+    evidence_count_at_last_cycle: int
+
     # ── Tool call tracking ────────────────────────────────────────────────
     tool_calls_made: Annotated[list[str], operator.add]  # ["tool_name:hash", ...]
     last_tool_results: list[dict[str, Any]]

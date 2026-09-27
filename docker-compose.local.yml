@@ -1,29 +1,29 @@
-# BankGuard AI — Local development override.
-# Starts only the infrastructure services (no API container, no Caddy).
-# Run the API and UI directly with Python for faster iteration.
+version: "3.9"
+
+# BankGuard AI — Local development infrastructure only.
+# Runs the data + observability services on loopback so the host
+# Python processes (uvicorn, streamlit) can reach them at localhost.
 #
 # Usage:
 #   docker-compose -f docker-compose.local.yml up -d
-#
-# Then separately:
 #   uvicorn apps.api.main:app --reload --port 8000
 #   streamlit run apps/operations-ui/app.py
-
-version: "3.9"
+#
+# All ports bind to 127.0.0.1 — not reachable from other machines on
+# the same network (safe for coffee-shop / shared Wi-Fi development).
 
 networks:
-  bankguard-net:
+  bankguard-local:
     driver: bridge
 
 volumes:
   postgres_data:
   valkey_data:
-  langfuse_data:
-  prometheus_data:
   grafana_data:
   loki_data:
 
 services:
+
   postgres:
     image: pgvector/pgvector:pg16
     container_name: bankguard-postgres
@@ -36,9 +36,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     networks:
-      - bankguard-net
+      - bankguard-local
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bankguard"]
       interval: 10s
@@ -53,49 +53,51 @@ services:
     volumes:
       - valkey_data:/data
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     networks:
-      - bankguard-net
+      - bankguard-local
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # Langfuse — LLM trace UI; accessible at http://localhost:3000
   langfuse:
     image: langfuse/langfuse:2
     container_name: bankguard-langfuse
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://bankguard:bankguard_dev_password@postgres:5432/bankguard
-      NEXTAUTH_SECRET: local-dev-secret-must-be-at-least-32-chars
-      SALT: local-dev-salt-must-be-at-least-32-chars!!
+      # Langfuse v2 requires >= 32-char secrets
+      NEXTAUTH_SECRET: "local-dev-nextauth-secret-32-chars!!"
+      SALT: "local-dev-salt-value-must-be-32chars"
       NEXTAUTH_URL: http://localhost:3000
       TELEMETRY_ENABLED: "false"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     networks:
-      - bankguard-net
+      - bankguard-local
     depends_on:
       postgres:
         condition: service_healthy
 
+  # Prometheus — metrics scrape
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: bankguard-prometheus
     restart: unless-stopped
     volumes:
-      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
+      - ./infrastructure/prometheus/prometheus.local.yml:/etc/prometheus/prometheus.yml:ro
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
       - "--web.enable-lifecycle"
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     networks:
-      - bankguard-net
+      - bankguard-local
 
+  # Grafana — dashboards at http://localhost:3002  (admin/admin)
   grafana:
     image: grafana/grafana:11.2.0
     container_name: bankguard-grafana
@@ -107,10 +109,11 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
     ports:
-      - "3002:3000"
+      - "127.0.0.1:3002:3000"
     networks:
-      - bankguard-net
+      - bankguard-local
 
+  # OPA — tool authorization policy at http://localhost:8181
   opa:
     image: openpolicyagent/opa:0.68.0
     container_name: bankguard-opa
@@ -123,6 +126,38 @@ services:
       - "--addr=0.0.0.0:8181"
       - "/policies"
     ports:
-      - "8181:8181"
+      - "127.0.0.1:8181:8181"
     networks:
-      - bankguard-net
+      - bankguard-local
+
+  # Temporal OSS — durable HITL workflows at http://localhost:8088 (UI)
+  temporal:
+    image: temporalio/auto-setup:1.25
+    container_name: bankguard-temporal
+    restart: unless-stopped
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=bankguard
+      - POSTGRES_PWD=bankguard_dev_password
+      - POSTGRES_SEEDS=postgres
+    ports:
+      - "127.0.0.1:7233:7233"
+    networks:
+      - bankguard-local
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  temporal-ui:
+    image: temporalio/ui:2.31
+    container_name: bankguard-temporal-ui
+    restart: unless-stopped
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    ports:
+      - "127.0.0.1:8088:8080"
+    networks:
+      - bankguard-local
+    depends_on:
+      - temporal

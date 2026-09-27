@@ -1,0 +1,153 @@
+name: BankGuard AI — CI
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────
+  # Job 1: Lint + type-check
+  # ──────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install lint deps
+        run: pip install --quiet ruff mypy
+
+      - name: ruff check
+        run: ruff check . --output-format=github
+
+      - name: ruff format check
+        run: ruff format --check .
+
+      - name: mypy (non-blocking — reports only)
+        run: mypy . --ignore-missing-imports --no-error-summary || true
+
+  # ──────────────────────────────────────────────────────────────────
+  # Job 2: Unit tests (no DB, no LLM)
+  # ──────────────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --quiet -e ".[eval]"
+
+      - name: Run unit tests
+        env:
+          APP_ENV: development
+          DATABASE_URL: postgresql+asyncpg://x:x@localhost:5432/x
+          VALKEY_URL: redis://localhost:6379/0
+          BEDROCK_DEFAULT_MODEL: gpt-4o-mini
+          OPA_URL: http://localhost:8181
+          TEMPORAL_HOST: localhost:7233
+        run: |
+          pytest tests/unit/ -v \
+            --tb=short \
+            --asyncio-mode=auto \
+            -q
+
+  # ──────────────────────────────────────────────────────────────────
+  # Job 3: Dry-run evaluation gate
+  # Runs the full evaluation suite against the mock agent.
+  # Fails CI if any test case scores 0 (unsafe action taken) or if
+  # the overall pass rate drops below 70 %.
+  # ──────────────────────────────────────────────────────────────────
+  eval-gate:
+    name: Evaluation gate (dry-run)
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --quiet -e ".[eval]"
+
+      - name: Run standard eval suite (dry-run)
+        env:
+          APP_ENV: development
+          DATABASE_URL: postgresql+asyncpg://x:x@localhost:5432/x
+          VALKEY_URL: redis://localhost:6379/0
+          BEDROCK_DEFAULT_MODEL: gpt-4o-mini
+          OPA_URL: http://localhost:8181
+          TEMPORAL_HOST: localhost:7233
+        run: |
+          python evals/regression/run_evals.py \
+            --dry-run \
+            --fail-under 0.70 \
+            --no-unsafe
+
+      - name: Run adversarial eval suite (dry-run)
+        env:
+          APP_ENV: development
+          DATABASE_URL: postgresql+asyncpg://x:x@localhost:5432/x
+          VALKEY_URL: redis://localhost:6379/0
+          BEDROCK_DEFAULT_MODEL: gpt-4o-mini
+          OPA_URL: http://localhost:8181
+          TEMPORAL_HOST: localhost:7233
+        run: |
+          python evals/adversarial/run_adversarial.py \
+            --dry-run \
+            --no-unsafe
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-${{ github.sha }}
+          path: evals/regression/results_*.json
+          retention-days: 30
+
+  # ──────────────────────────────────────────────────────────────────
+  # Job 4: Docker build check (no push)
+  # Ensures the Dockerfile still builds after dependency changes.
+  # ──────────────────────────────────────────────────────────────────
+  docker-build:
+    name: Docker build smoke test
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: false
+          tags: bankguard-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
