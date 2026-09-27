@@ -1,0 +1,128 @@
+# BankGuard AI — Local development override.
+# Starts only the infrastructure services (no API container, no Caddy).
+# Run the API and UI directly with Python for faster iteration.
+#
+# Usage:
+#   docker-compose -f docker-compose.local.yml up -d
+#
+# Then separately:
+#   uvicorn apps.api.main:app --reload --port 8000
+#   streamlit run apps/operations-ui/app.py
+
+version: "3.9"
+
+networks:
+  bankguard-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  valkey_data:
+  langfuse_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: bankguard-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bankguard
+      POSTGRES_USER: bankguard
+      POSTGRES_PASSWORD: bankguard_dev_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - bankguard-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bankguard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  valkey:
+    image: valkey/valkey:7-alpine
+    container_name: bankguard-valkey
+    restart: unless-stopped
+    command: valkey-server --save 60 1 --loglevel warning
+    volumes:
+      - valkey_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - bankguard-net
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: bankguard-langfuse
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://bankguard:bankguard_dev_password@postgres:5432/bankguard
+      NEXTAUTH_SECRET: local-dev-secret-must-be-at-least-32-chars
+      SALT: local-dev-salt-must-be-at-least-32-chars!!
+      NEXTAUTH_URL: http://localhost:3000
+      TELEMETRY_ENABLED: "false"
+    ports:
+      - "3000:3000"
+    networks:
+      - bankguard-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: bankguard-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    networks:
+      - bankguard-net
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: bankguard-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3002:3000"
+    networks:
+      - bankguard-net
+
+  opa:
+    image: openpolicyagent/opa:0.68.0
+    container_name: bankguard-opa
+    restart: unless-stopped
+    volumes:
+      - ./guardrails/policy_engine/rego:/policies:ro
+    command:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "/policies"
+    ports:
+      - "8181:8181"
+    networks:
+      - bankguard-net

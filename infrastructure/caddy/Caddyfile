@@ -1,0 +1,47 @@
+# BankGuard AI — Caddy reverse proxy
+#
+# LOCAL DEV:  Caddy is optional. Access services directly:
+#   FastAPI:    http://localhost:8000
+#   Streamlit:  http://localhost:8501
+#   Langfuse:   http://localhost:3000
+#   Grafana:    http://localhost:3002
+#   Temporal:   http://localhost:8088
+#
+# PRODUCTION (EC2): Replace :80 with your domain.
+# Caddy will auto-provision TLS via Let's Encrypt.
+
+:80 {
+    # API (REST + WebSocket)
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+
+    handle /ws/* {
+        reverse_proxy api:8000 {
+            header_up Upgrade {http.upgrade}
+            header_up Connection {http.connection}
+        }
+    }
+
+    handle /metrics {
+        reverse_proxy api:8000
+    }
+
+    handle /health* {
+        reverse_proxy api:8000
+    }
+
+    handle /docs {
+        reverse_proxy api:8000
+    }
+
+    # Streamlit UI (note: Streamlit runs on 8501, not 5173)
+    handle {
+        reverse_proxy operations-ui:8501
+    }
+
+    log {
+        output stdout
+        format json
+    }
+}
