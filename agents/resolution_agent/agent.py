@@ -27,8 +27,7 @@ log = structlog.get_logger(__name__)
 
 RESOLUTION_RULES: dict[str, tuple[str, str, bool, str]] = {
     "BENEFICIARY_BANK_TIMEOUT": (
-        "Wait for reconciliation window (24–48h). Create ops ticket to monitor. "
-        "Do NOT retry payment.",
+        "Wait for reconciliation window (24–48h). Create ops ticket to monitor. Do NOT retry payment.",
         "LOW",
         False,
         "Per PAY-REC-101: do not retry during reconciliation window.",
@@ -79,9 +78,9 @@ RESOLUTION_RULES: dict[str, tuple[str, str, bool, str]] = {
 
 # Risk level → whether human approval is always required
 RISK_APPROVAL_MAP = {
-    "LOW":      False,
-    "MEDIUM":   True,
-    "HIGH":     True,
+    "LOW": False,
+    "MEDIUM": True,
+    "HIGH": True,
     "CRITICAL": True,
 }
 
@@ -96,10 +95,10 @@ def make_resolution_agent(run_ctx: Any) -> Any:
             case_ref=state.get("case_ref"),
         )
 
-        hypotheses    = state.get("hypotheses", [])
-        evidence      = state.get("evidence", [])
-        policies      = state.get("retrieved_policies", [])
-        case_data     = state.get("case_data", {})
+        hypotheses = state.get("hypotheses", [])
+        evidence = state.get("evidence", [])
+        policies = state.get("retrieved_policies", [])
+        case_data = state.get("case_data", {})
         observations: list[str] = []
         errors: list[str] = []
 
@@ -108,21 +107,18 @@ def make_resolution_agent(run_ctx: Any) -> Any:
         if hypotheses:
             top_hypothesis = max(hypotheses, key=lambda h: h.get("confidence", 0))
 
-        root_cause   = top_hypothesis["root_cause"] if top_hypothesis else "UNKNOWN"
-        confidence   = top_hypothesis.get("confidence", 0.0) if top_hypothesis else 0.0
+        root_cause = top_hypothesis["root_cause"] if top_hypothesis else "UNKNOWN"
+        confidence = top_hypothesis.get("confidence", 0.0) if top_hypothesis else 0.0
 
         # ── LLM-based resolution (primary path) ───────────────────────────
         recommended_action = None
-        action_risk_level  = "MEDIUM"
-        requires_approval  = True
-        resolution_notes   = None
+        action_risk_level = "MEDIUM"
+        requires_approval = True
+        resolution_notes = None
 
         try:
             evidence_summary = json.dumps(
-                [
-                    {"source": e["source"], "summary": str(e["content"])[:400]}
-                    for e in evidence[:6]
-                ],
+                [{"source": e["source"], "summary": str(e["content"])[:400]} for e in evidence[:6]],
                 indent=2,
             )
             policy_summary = json.dumps(
@@ -162,9 +158,9 @@ def make_resolution_agent(run_ctx: Any) -> Any:
             # Parse JSON response
             parsed = json.loads(content)
             recommended_action = parsed.get("recommended_action")
-            action_risk_level  = parsed.get("risk_level", "MEDIUM")
-            requires_approval  = parsed.get("requires_human_approval", True)
-            resolution_notes   = parsed.get("resolution_notes")
+            action_risk_level = parsed.get("risk_level", "MEDIUM")
+            requires_approval = parsed.get("requires_human_approval", True)
+            resolution_notes = parsed.get("resolution_notes")
             if parsed.get("confidence"):
                 confidence = max(confidence, float(parsed["confidence"]))
 
@@ -178,16 +174,14 @@ def make_resolution_agent(run_ctx: Any) -> Any:
             if root_cause in RESOLUTION_RULES:
                 action, risk, approval, notes = RESOLUTION_RULES[root_cause]
                 recommended_action = action
-                action_risk_level  = risk
-                requires_approval  = RISK_APPROVAL_MAP.get(risk, True)
-                resolution_notes   = notes
-                observations.append(
-                    f"Rule-based resolution for '{root_cause}': {action[:100]}..."
-                )
+                action_risk_level = risk
+                requires_approval = RISK_APPROVAL_MAP.get(risk, True)
+                resolution_notes = notes
+                observations.append(f"Rule-based resolution for '{root_cause}': {action[:100]}...")
             else:
                 recommended_action = "Escalate to human operator — root cause undetermined."
-                action_risk_level  = "HIGH"
-                requires_approval  = True
+                action_risk_level = "HIGH"
+                requires_approval = True
                 observations.append("Unknown root cause — escalating to human.")
 
         # ── Create case note ───────────────────────────────────────────────

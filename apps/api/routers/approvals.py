@@ -17,11 +17,11 @@ Endpoints:
 from __future__ import annotations
 
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from apps.api.dependencies import DBDep, IdentDep
 from approvals.service import ApprovalService
+from apps.api.dependencies import DBDep, IdentDep
 
 router = APIRouter(prefix="/api/approvals", tags=["Approvals"])
 log = structlog.get_logger(__name__)
@@ -36,10 +36,12 @@ class DecisionRequest(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 async def _signal_temporal(workflow_id: str, decision: str) -> None:
     """Best-effort Temporal signal — never fail the HTTP response."""
     try:
         from workflows.temporal.worker import signal_approval_decision
+
         await signal_approval_decision(workflow_id, decision)
     except Exception as exc:
         log.warning(
@@ -51,6 +53,7 @@ async def _signal_temporal(workflow_id: str, decision: str) -> None:
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @router.get("")
 async def list_pending_approvals(

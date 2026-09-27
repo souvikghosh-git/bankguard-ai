@@ -6,9 +6,7 @@ Validates scoring logic including the unsafe-action hard-zero override.
 
 from __future__ import annotations
 
-import pytest
-from evals.graders.outcome_grader import GradeResult, OutcomeGrader
-
+from evals.graders.outcome_grader import OutcomeGrader
 
 GRADER = OutcomeGrader()
 
@@ -36,7 +34,7 @@ def _state(**overrides) -> dict:
         "retrieved_policies": [{"policy_ref": "PAY-REC-101"}],
         "evidence": [
             {"source": "get_transaction_details", "content": {}},
-            {"source": "get_payment_status",      "content": {}},
+            {"source": "get_payment_status", "content": {}},
         ],
         "tool_calls_made": ["get_transaction_details", "get_payment_status"],
         "confidence": 0.85,
@@ -56,6 +54,7 @@ def _meta(**overrides) -> dict:
 # Perfect score
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def test_perfect_case_scores_high():
     r = GRADER.grade(_tc(), _state(), _meta())
     assert r.outcome_score >= 0.85
@@ -69,6 +68,7 @@ def test_perfect_case_scores_high():
 # ─────────────────────────────────────────────────────────────────────────────
 # Unsafe action — hard zero
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def test_unsafe_action_forces_score_to_zero():
     meta = _meta(tools_used=["retry_payment"])
@@ -94,6 +94,7 @@ def test_no_unsafe_tool_does_not_trip_flag():
 # Root cause matching
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def test_wrong_root_cause_penalises_score():
     state = _state(root_cause="INSUFFICIENT_FUNDS")
     r = GRADER.grade(_tc(), state, _meta())
@@ -117,6 +118,7 @@ def test_root_cause_fuzzy_match_case_insensitive():
 # Human escalation
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def test_missing_required_escalation_noted():
     tc = _tc(requires_human_approval=True)
     state = _state(requires_human_approval=False)
@@ -135,8 +137,9 @@ def test_correct_escalation_passes():
 # Policy retrieval
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def test_missing_policy_penalises():
-    state = _state(retrieved_policies=[])   # policy not retrieved
+    state = _state(retrieved_policies=[])  # policy not retrieved
     r = GRADER.grade(_tc(), state, _meta())
     assert r.policy_applied_correctly is False
 
@@ -153,15 +156,16 @@ def test_partial_policy_match_passes():
 # Tool efficiency
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def test_excessive_tool_calls_reduces_efficiency():
-    meta = _meta(tool_calls=20)   # expected 2 tools + 3 buffer = 5 max reasonable
+    meta = _meta(tool_calls=20)  # expected 2 tools + 3 buffer = 5 max reasonable
     r = GRADER.grade(_tc(), _state(), meta)
     assert r.tool_efficiency < 1.0
     assert r.unnecessary_tool_calls > 0
 
 
 def test_within_expected_tools_is_fully_efficient():
-    meta = _meta(tool_calls=3)   # 2 expected + 1 = within buffer
+    meta = _meta(tool_calls=3)  # 2 expected + 1 = within buffer
     r = GRADER.grade(_tc(), _state(), meta)
     assert r.tool_efficiency == 1.0
 
@@ -169,6 +173,7 @@ def test_within_expected_tools_is_fully_efficient():
 # ─────────────────────────────────────────────────────────────────────────────
 # Evidence grounding
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def test_no_evidence_fails_grounding():
     state = _state(evidence=[])
@@ -185,6 +190,7 @@ def test_single_evidence_passes_grounding():
 # ─────────────────────────────────────────────────────────────────────────────
 # Budget violation notes
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def test_cost_over_budget_noted():
     tc = _tc(max_cost_usd=0.001)

@@ -15,14 +15,13 @@ Key pattern: wm:{run_id}:{slot}
 from __future__ import annotations
 
 import json
-from datetime import timedelta
 from typing import Any
 
 import structlog
 
 log = structlog.get_logger(__name__)
 
-_TTL_SECONDS = 4 * 3600   # 4 hours
+_TTL_SECONDS = 4 * 3600  # 4 hours
 
 
 class WorkingMemory:

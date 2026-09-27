@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
 from agents.state import AgentState, LoopState, StopReason
 
@@ -33,17 +33,18 @@ MIN_EVIDENCE_ITEMS = 3
 # Routing functions
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _should_stop(state: AgentState) -> str:
     """
     Central routing after EVALUATE.
     Checks hard limits first, then natural completion signals.
     Returns a node name or END.
     """
-    iteration   = state.get("iteration", 0)
-    confidence  = state.get("confidence") or 0.0
-    evidence    = state.get("evidence", [])
+    iteration = state.get("iteration", 0)
+    confidence = state.get("confidence") or 0.0
+    evidence = state.get("evidence", [])
     stop_reason = state.get("stop_reason")
-    errors      = state.get("errors", [])
+    errors = state.get("errors", [])
 
     # Explicit stop signals take priority
     if stop_reason == StopReason.HUMAN_ESCALATION:
@@ -90,6 +91,7 @@ def _route_after_review(state: AgentState) -> str:
 # Nodes
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def supervisor_plan_node(state: AgentState) -> dict[str, Any]:
     """
     PLAN node — sets investigation strategy.
@@ -128,12 +130,12 @@ def supervisor_evaluate_node(state: AgentState) -> dict[str, Any]:
     count against `evidence_count_at_last_cycle` (a delta), not the
     absolute cumulative count which can never be zero after the first run.
     """
-    evidence      = state.get("evidence", [])
-    hypotheses    = state.get("hypotheses", [])
-    iteration     = state.get("iteration", 0)
-    prev_count    = state.get("evidence_count_at_last_cycle", 0)
+    evidence = state.get("evidence", [])
+    hypotheses = state.get("hypotheses", [])
+    iteration = state.get("iteration", 0)
+    prev_count = state.get("evidence_count_at_last_cycle", 0)
     current_count = len(evidence)
-    delta         = current_count - prev_count
+    delta = current_count - prev_count
 
     log.info(
         "supervisor_evaluate",
@@ -166,8 +168,7 @@ def supervisor_evaluate_node(state: AgentState) -> dict[str, Any]:
         log.warning("no_new_evidence_detected", iteration=iteration, prev_count=prev_count)
         updates["stop_reason"] = StopReason.NO_NEW_EVIDENCE
         updates["observations"] = [
-            f"[Evaluate] No new evidence in iteration {iteration}. "
-            "Stopping investigation to avoid infinite loop."
+            f"[Evaluate] No new evidence in iteration {iteration}. Stopping investigation to avoid infinite loop."
         ]
 
     return updates
@@ -196,6 +197,7 @@ def escalate_node(state: AgentState) -> dict[str, Any]:
 # Graph builder
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def build_supervisor_graph(
     transaction_agent_fn: Any,
     policy_agent_fn: Any,
@@ -208,28 +210,28 @@ def build_supervisor_graph(
     """
     graph = StateGraph(AgentState)
 
-    graph.add_node("plan",              supervisor_plan_node)
+    graph.add_node("plan", supervisor_plan_node)
     graph.add_node("transaction_agent", transaction_agent_fn)
-    graph.add_node("policy_agent",      policy_agent_fn)
-    graph.add_node("resolution_agent",  resolution_agent_fn)
-    graph.add_node("evaluate",          supervisor_evaluate_node)
-    graph.add_node("reviewer",          reviewer_agent_fn)
-    graph.add_node("escalate",          escalate_node)
+    graph.add_node("policy_agent", policy_agent_fn)
+    graph.add_node("resolution_agent", resolution_agent_fn)
+    graph.add_node("evaluate", supervisor_evaluate_node)
+    graph.add_node("reviewer", reviewer_agent_fn)
+    graph.add_node("escalate", escalate_node)
 
     graph.set_entry_point("plan")
 
-    graph.add_edge("plan",               "transaction_agent")
-    graph.add_edge("transaction_agent",  "policy_agent")
-    graph.add_edge("policy_agent",       "resolution_agent")
-    graph.add_edge("resolution_agent",   "evaluate")
+    graph.add_edge("plan", "transaction_agent")
+    graph.add_edge("transaction_agent", "policy_agent")
+    graph.add_edge("policy_agent", "resolution_agent")
+    graph.add_edge("resolution_agent", "evaluate")
 
     graph.add_conditional_edges(
         "evaluate",
         _should_stop,
         {
             "transaction_agent": "transaction_agent",
-            "reviewer":          "reviewer",
-            "escalate":          "escalate",
+            "reviewer": "reviewer",
+            "escalate": "escalate",
         },
     )
 
@@ -238,8 +240,8 @@ def build_supervisor_graph(
         _route_after_review,
         {
             "transaction_agent": "transaction_agent",
-            "escalate":          "escalate",
-            END:                 END,
+            "escalate": "escalate",
+            END: END,
         },
     )
 

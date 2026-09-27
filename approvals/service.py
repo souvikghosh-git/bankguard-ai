@@ -25,7 +25,7 @@ This module handles the DB-side approval lifecycle.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -57,22 +57,22 @@ class ApprovalService:
     def classify_risk(tool_name: str, payload: dict[str, Any]) -> str:
         """Return risk level for a given tool + payload."""
         risk_map = {
-            "get_transaction_details":     "LOW",
-            "get_account_summary":         "LOW",
-            "get_customer_profile":        "LOW",
-            "get_recent_transactions":     "LOW",
-            "get_payment_status":          "LOW",
-            "search_policy":               "LOW",
-            "get_case_history":            "LOW",
-            "check_transaction_limit":     "LOW",
-            "get_payment_rail_status":     "LOW",
-            "create_case_note":            "LOW",
-            "create_operations_ticket":    "LOW",
+            "get_transaction_details": "LOW",
+            "get_account_summary": "LOW",
+            "get_customer_profile": "LOW",
+            "get_recent_transactions": "LOW",
+            "get_payment_status": "LOW",
+            "search_policy": "LOW",
+            "get_case_history": "LOW",
+            "check_transaction_limit": "LOW",
+            "get_payment_rail_status": "LOW",
+            "create_case_note": "LOW",
+            "create_operations_ticket": "LOW",
             "draft_customer_notification": "LOW",
-            "retry_payment":               "HIGH",
-            "block_card":                  "HIGH",
-            "freeze_account":              "CRITICAL",
-            "reverse_transaction":         "CRITICAL",
+            "retry_payment": "HIGH",
+            "block_card": "HIGH",
+            "freeze_account": "CRITICAL",
+            "reverse_transaction": "CRITICAL",
         }
         risk = risk_map.get(tool_name, "MEDIUM")
 
@@ -100,19 +100,16 @@ class ApprovalService:
     ) -> str:
         """Create an approval request. Returns approval_ref."""
         approval_ref = f"APR-{uuid.uuid4().hex[:10].upper()}"
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=APPROVAL_TTL_HOURS)
+        expires_at = datetime.now(UTC) + timedelta(hours=APPROVAL_TTL_HOURS)
 
         try:
             async with self.db.acquire() as conn:
                 # Resolve case_id and run_id
-                case_row = await conn.fetchrow(
-                    "SELECT id FROM agent.cases WHERE case_ref = $1", case_ref
-                )
-                run_row = await conn.fetchrow(
-                    "SELECT id FROM agent.agent_runs WHERE run_ref = $1", run_id
-                )
+                case_row = await conn.fetchrow("SELECT id FROM agent.cases WHERE case_ref = $1", case_ref)
+                run_row = await conn.fetchrow("SELECT id FROM agent.agent_runs WHERE run_ref = $1", run_id)
 
                 import json
+
                 await conn.execute(
                     """
                     INSERT INTO agent.approvals
@@ -174,7 +171,7 @@ class ApprovalService:
                     "requested_at": str(row["requested_at"]),
                     "reviewed_at": str(row["reviewed_at"]) if row["reviewed_at"] else None,
                     "expires_at": str(row["expires_at"]),
-                    "is_expired": row["expires_at"] < datetime.now(timezone.utc),
+                    "is_expired": row["expires_at"] < datetime.now(UTC),
                 }
         except Exception as exc:
             log.error("approval_get_status_error", error=str(exc))
@@ -275,11 +272,11 @@ class ApprovalService:
                 return [
                     {
                         "approval_ref": r["approval_ref"],
-                        "action_type":  r["action_type"],
-                        "risk_level":   r["risk_level"],
-                        "case_ref":     r["case_ref"],
+                        "action_type": r["action_type"],
+                        "risk_level": r["risk_level"],
+                        "case_ref": r["case_ref"],
                         "requested_at": str(r["requested_at"]),
-                        "expires_at":   str(r["expires_at"]),
+                        "expires_at": str(r["expires_at"]),
                     }
                     for r in rows
                 ]

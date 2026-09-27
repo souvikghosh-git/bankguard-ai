@@ -32,8 +32,9 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator
+from typing import Any
 
 import structlog
 from prometheus_client import Counter, Gauge, Histogram
@@ -77,7 +78,7 @@ llm_invocations_total = Counter(
 llm_tokens_total = Counter(
     "bankguard_llm_tokens_total",
     "Total LLM tokens consumed",
-    ["model", "direction"],   # direction: input | output
+    ["model", "direction"],  # direction: input | output
 )
 llm_cost_usd_total = Counter(
     "bankguard_llm_cost_usd_total",
@@ -87,7 +88,7 @@ llm_cost_usd_total = Counter(
 cases_investigated_total = Counter(
     "bankguard_cases_investigated_total",
     "Cases investigated by outcome",
-    ["outcome"],   # RESOLVED | ESCALATED | FAILED
+    ["outcome"],  # RESOLVED | ESCALATED | FAILED
 )
 approval_requests_total = Counter(
     "bankguard_approval_requests_total",
@@ -119,6 +120,7 @@ unsafe_actions_blocked_total = Counter(
 # structlog setup
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def setup_logging(log_level: str = "INFO") -> None:
     """
     Configure structlog for JSON output.
@@ -127,7 +129,7 @@ def setup_logging(log_level: str = "INFO") -> None:
     """
     structlog.configure(
         processors=[
-            structlog.contextvars.merge_contextvars,   # <-- injects run_id, trace_id
+            structlog.contextvars.merge_contextvars,  # <-- injects run_id, trace_id
             structlog.stdlib.add_log_level,
             structlog.stdlib.add_logger_name,
             structlog.processors.TimeStamper(fmt="iso"),
@@ -136,9 +138,7 @@ def setup_logging(log_level: str = "INFO") -> None:
             structlog.processors.UnicodeDecoder(),
             structlog.processors.JSONRenderer(),
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(logging, log_level.upper(), logging.INFO)
-        ),
+        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, log_level.upper(), logging.INFO)),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
@@ -159,19 +159,22 @@ def setup_telemetry(service_name: str | None = None) -> None:
         return
 
     from config import settings
+
     svc = service_name or settings.otel_service_name
 
     try:
         from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        from opentelemetry.sdk.resources import DEPLOYMENT_ENVIRONMENT, SERVICE_NAME, Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-        from opentelemetry.sdk.resources import Resource, SERVICE_NAME, DEPLOYMENT_ENVIRONMENT
 
-        resource = Resource.create({
-            SERVICE_NAME: svc,
-            DEPLOYMENT_ENVIRONMENT: settings.otel_environment,
-        })
+        resource = Resource.create(
+            {
+                SERVICE_NAME: svc,
+                DEPLOYMENT_ENVIRONMENT: settings.otel_environment,
+            }
+        )
         provider = TracerProvider(resource=resource)
         exporter = OTLPSpanExporter(
             endpoint=settings.otel_exporter_otlp_endpoint,
@@ -180,18 +183,15 @@ def setup_telemetry(service_name: str | None = None) -> None:
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
         _otel_initialized = True
-        structlog.get_logger(__name__).info(
-            "otel_initialized", endpoint=settings.otel_exporter_otlp_endpoint
-        )
+        structlog.get_logger(__name__).info("otel_initialized", endpoint=settings.otel_exporter_otlp_endpoint)
     except Exception as exc:
-        structlog.get_logger(__name__).warning(
-            "otel_setup_failed_proceeding_without_tracing", error=str(exc)
-        )
+        structlog.get_logger(__name__).warning("otel_setup_failed_proceeding_without_tracing", error=str(exc))
 
 
 def get_tracer(name: str) -> Any:
     try:
         from opentelemetry import trace
+
         return trace.get_tracer(name)
     except Exception:
         return _NoOpTracer()
@@ -207,6 +207,7 @@ def _run_id_to_trace_id(run_id: str) -> int:
     so Langfuse, Loki and Prometheus all share the same correlation key.
     """
     import hashlib
+
     digest = hashlib.sha256(run_id.encode()).digest()
     return int.from_bytes(digest[:16], "big")
 
@@ -214,6 +215,7 @@ def _run_id_to_trace_id(run_id: str) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 # Main context manager — call this once per agent run
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @asynccontextmanager
 async def trace_agent_run(
@@ -281,9 +283,7 @@ async def trace_agent_run(
             is_remote=False,
             trace_flags=TraceFlags(TraceFlags.SAMPLED),
         )
-        root_span_ctx = otel_trace.use_span(
-            NonRecordingSpan(span_ctx), end_on_exit=False
-        )
+        root_span_ctx = otel_trace.use_span(NonRecordingSpan(span_ctx), end_on_exit=False)
         root_span_ctx.__enter__()
     except Exception:
         root_span_ctx = None
@@ -300,15 +300,11 @@ async def trace_agent_run(
         ctx["otel_span"] = span
         try:
             yield ctx
-            agent_runs_total.labels(
-                status="success", sandbox_mode=sandbox_mode
-            ).inc()
+            agent_runs_total.labels(status="success", sandbox_mode=sandbox_mode).inc()
         except Exception as exc:
             span.record_exception(exc)
             ctx["final_status"] = "error"
-            agent_runs_total.labels(
-                status="error", sandbox_mode=sandbox_mode
-            ).inc()
+            agent_runs_total.labels(status="error", sandbox_mode=sandbox_mode).inc()
             raise
         finally:
             if root_span_ctx:
@@ -341,6 +337,7 @@ async def trace_agent_run(
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-tool and per-LLM recording helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def record_tool_call(
     tool_name: str,
@@ -397,6 +394,7 @@ def record_llm_call(
 # Langfuse tracer
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class LangfuseTracer:
     """Thin wrapper around the Langfuse SDK. Fails gracefully if unavailable."""
 
@@ -408,7 +406,9 @@ class LangfuseTracer:
     def _init(self) -> None:
         try:
             from langfuse import Langfuse
+
             from config import settings
+
             self._client = Langfuse(
                 public_key=settings.langfuse_public_key,
                 secret_key=settings.langfuse_secret_key,
@@ -416,9 +416,7 @@ class LangfuseTracer:
             )
             self._available = True
         except Exception as exc:
-            structlog.get_logger(__name__).warning(
-                "langfuse_unavailable", error=str(exc)
-            )
+            structlog.get_logger(__name__).warning("langfuse_unavailable", error=str(exc))
 
     def trace_run(self, run_id: str, case_ref: str, metadata: dict | None = None) -> Any:
         if not self._available:
@@ -465,21 +463,32 @@ class LangfuseTracer:
 # No-op stubs (used when OTel / Langfuse are unavailable)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class _NoOpTracer:
     def start_as_current_span(self, name: str, **_: Any) -> Any:
         return _NoOpSpan()
 
 
 class _NoOpSpan:
-    def __enter__(self) -> "_NoOpSpan": return self
-    def __exit__(self, *_: Any) -> None: pass
-    def set_attribute(self, *_: Any, **__: Any) -> None: pass
-    def add_event(self, *_: Any, **__: Any) -> None: pass
-    def record_exception(self, *_: Any, **__: Any) -> None: pass
+    def __enter__(self) -> _NoOpSpan:
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        pass
+
+    def set_attribute(self, *_: Any, **__: Any) -> None:
+        pass
+
+    def add_event(self, *_: Any, **__: Any) -> None:
+        pass
+
+    def record_exception(self, *_: Any, **__: Any) -> None:
+        pass
 
 
 class _NoOpTrace:
-    def generation(self, *_: Any, **__: Any) -> None: pass
+    def generation(self, *_: Any, **__: Any) -> None:
+        pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────

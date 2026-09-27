@@ -20,28 +20,25 @@ Observability contract:
 
 from __future__ import annotations
 
-import uuid
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 import structlog
 
-from agents.state import AgentState, LoopState
-from agents.supervisor import build_supervisor_graph
-from agents.transaction_agent import make_transaction_agent
 from agents.policy_agent import make_policy_agent
 from agents.resolution_agent import make_resolution_agent
 from agents.reviewer_agent import make_reviewer_agent
+from agents.state import LoopState
+from agents.supervisor import build_supervisor_graph
+from agents.transaction_agent import make_transaction_agent
 from harness.runtime import AgentRuntime, StoppingReason
 from harness.sandbox import SandboxMode
-from memory.working import WorkingMemory
 from memory.episodic import EpisodicMemory
+from memory.working import WorkingMemory
 from observability.telemetry import (
-    trace_agent_run,
-    record_llm_call,
     record_tool_call,
-    cases_investigated_total,
-    approval_requests_total,
     setup_telemetry,
+    trace_agent_run,
 )
 
 log = structlog.get_logger(__name__)
@@ -67,7 +64,7 @@ class AgentRunner:
         self.valkey = valkey
         self.runtime = AgentRuntime(db, valkey, sandbox_mode)
         self.episodic = EpisodicMemory(db)
-        setup_telemetry()   # idempotent — safe to call multiple times
+        setup_telemetry()  # idempotent — safe to call multiple times
 
     async def investigate(
         self,
@@ -113,7 +110,6 @@ class AgentRunner:
                 case_ref=case_ref,
                 sandbox_mode=sandbox_str,
             ) as tctx:
-
                 # Attach the Langfuse trace to run_ctx so agent nodes can
                 # call record_llm_call() with it.
                 run_ctx._langfuse_trace = tctx.get("langfuse_trace")
@@ -135,36 +131,36 @@ class AgentRunner:
                 graph = build_supervisor_graph(txn_fn, pol_fn, res_fn, rev_fn)
 
                 initial_state: dict[str, Any] = {
-                    "messages":                     [],
-                    "run_id":                       run_ctx.run_id,
-                    "case_id":                      case_data["id"],
-                    "case_ref":                     case_ref,
-                    "identity":                     identity,
-                    "loop_state":                   LoopState.PLAN,
-                    "iteration":                    0,
-                    "stop_reason":                  None,
-                    "case_data":                    case_data,
-                    "customer_data":                None,
-                    "transaction_data":             None,
-                    "related_transactions":         [],
-                    "evidence":                     [],
+                    "messages": [],
+                    "run_id": run_ctx.run_id,
+                    "case_id": case_data["id"],
+                    "case_ref": case_ref,
+                    "identity": identity,
+                    "loop_state": LoopState.PLAN,
+                    "iteration": 0,
+                    "stop_reason": None,
+                    "case_data": case_data,
+                    "customer_data": None,
+                    "transaction_data": None,
+                    "related_transactions": [],
+                    "evidence": [],
                     "evidence_count_at_last_cycle": 0,
-                    "investigation_plan":           [],
-                    "observations":                 [],
-                    "hypotheses":                   [],
-                    "retrieved_policies":           [],
-                    "root_cause":                   None,
-                    "confidence":                   None,
-                    "recommended_action":           None,
-                    "action_risk_level":            None,
-                    "requires_human_approval":      False,
-                    "resolution_notes":             None,
-                    "reviewer_approved":            False,
-                    "reviewer_concerns":            [],
-                    "tool_calls_made":              [],
-                    "last_tool_results":            [],
-                    "budget_snapshot":              None,
-                    "errors":                       [],
+                    "investigation_plan": [],
+                    "observations": [],
+                    "hypotheses": [],
+                    "retrieved_policies": [],
+                    "root_cause": None,
+                    "confidence": None,
+                    "recommended_action": None,
+                    "action_risk_level": None,
+                    "requires_human_approval": False,
+                    "resolution_notes": None,
+                    "reviewer_approved": False,
+                    "reviewer_concerns": [],
+                    "tool_calls_made": [],
+                    "last_tool_results": [],
+                    "budget_snapshot": None,
+                    "errors": [],
                 }
 
                 yield {
@@ -199,13 +195,13 @@ class AgentRunner:
                         final_state = {**final_state, **node_state}
 
                         yield {
-                            "type":          "step",
-                            "node":          node_name,
-                            "observations":  node_state.get("observations", []),
+                            "type": "step",
+                            "node": node_name,
+                            "observations": node_state.get("observations", []),
                             "evidence_added": len(node_state.get("evidence", [])),
-                            "loop_state":    str(node_state.get("loop_state", "")),
-                            "iteration":     node_state.get("iteration", 0),
-                            "trace_id":      tctx["trace_id"],
+                            "loop_state": str(node_state.get("loop_state", "")),
+                            "iteration": node_state.get("iteration", 0),
+                            "trace_id": tctx["trace_id"],
                         }
 
                 except Exception as exc:
@@ -215,26 +211,21 @@ class AgentRunner:
                     return
 
                 # Populate telemetry context for cleanup in trace_agent_run
-                tctx["final_status"] = (
-                    "success" if final_state.get("reviewer_approved") else "escalated"
-                )
+                tctx["final_status"] = "success" if final_state.get("reviewer_approved") else "escalated"
                 tctx["iterations"] = final_state.get("iteration", 0)
                 tctx["root_cause"] = final_state.get("root_cause")
                 tctx["stop_reason"] = str(final_state.get("stop_reason", ""))
 
                 # Record cost metrics from the budget
                 snap = run_ctx.budget.snapshot()
-                from observability.telemetry import llm_cost_usd_total, llm_tokens_total
                 from config import settings
+                from observability.telemetry import llm_tokens_total
+
                 model = settings.bedrock_default_model
                 if snap.input_tokens_used > 0:
-                    llm_tokens_total.labels(model=model, direction="input").inc(
-                        snap.input_tokens_used
-                    )
+                    llm_tokens_total.labels(model=model, direction="input").inc(snap.input_tokens_used)
                 if snap.output_tokens_used > 0:
-                    llm_tokens_total.labels(model=model, direction="output").inc(
-                        snap.output_tokens_used
-                    )
+                    llm_tokens_total.labels(model=model, direction="output").inc(snap.output_tokens_used)
 
                 # Persist episode and update case
                 await self.episodic.record(
@@ -266,10 +257,10 @@ class AgentRunner:
                 run_ctx.stop(StoppingReason.CASE_RESOLVED, final_output=dict(final_state))
 
                 yield {
-                    "type":     "final",
-                    "run_id":   run_ctx.run_id,
+                    "type": "final",
+                    "run_id": run_ctx.run_id,
                     "trace_id": tctx["trace_id"],
-                    "state":    dict(final_state),
+                    "state": dict(final_state),
                 }
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -297,9 +288,7 @@ class AgentRunner:
             log.error("load_case_error", case_ref=case_ref, error=str(exc))
             return None
 
-    async def _create_run_record(
-        self, run_id: str, case_id: str, identity: dict
-    ) -> None:
+    async def _create_run_record(self, run_id: str, case_id: str, identity: dict) -> None:
         """Insert an agent_runs row so tool_calls FK can resolve."""
         try:
             async with self.db.acquire() as conn:
@@ -320,10 +309,9 @@ class AgentRunner:
         except Exception as exc:
             log.warning("create_run_record_error", error=str(exc))
 
-    async def _update_run_record(
-        self, run_id: str, snap: Any, stopping_reason: str, final_output: dict
-    ) -> None:
+    async def _update_run_record(self, run_id: str, snap: Any, stopping_reason: str, final_output: dict) -> None:
         import json
+
         try:
             async with self.db.acquire() as conn:
                 await conn.execute(
@@ -348,9 +336,18 @@ class AgentRunner:
                     snap.cost_usd,
                     stopping_reason,
                     json.dumps(
-                        {k: str(v) for k, v in final_output.items()
-                         if k in ("root_cause", "confidence", "recommended_action",
-                                  "action_risk_level", "requires_human_approval")},
+                        {
+                            k: str(v)
+                            for k, v in final_output.items()
+                            if k
+                            in (
+                                "root_cause",
+                                "confidence",
+                                "recommended_action",
+                                "action_risk_level",
+                                "requires_human_approval",
+                            )
+                        },
                     ),
                 )
         except Exception as exc:
@@ -377,7 +374,11 @@ class AgentRunner:
                         updated_at = NOW()
                     WHERE case_ref = $1
                     """,
-                    case_ref, new_status, root_cause, resolution, confidence,
+                    case_ref,
+                    new_status,
+                    root_cause,
+                    resolution,
+                    confidence,
                 )
         except Exception as exc:
             log.warning("update_case_status_error", error=str(exc))

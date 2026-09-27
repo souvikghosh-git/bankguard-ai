@@ -10,7 +10,8 @@ Tools:
 from __future__ import annotations
 
 import uuid
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import structlog
 
@@ -71,9 +72,7 @@ def case_tools(
         ticket_ref = f"TKT-{uuid.uuid4().hex[:8].upper()}"
         try:
             async with db.acquire() as conn:
-                case_row = await conn.fetchrow(
-                    "SELECT id FROM agent.cases WHERE case_ref = $1", inp.case_ref
-                )
+                case_row = await conn.fetchrow("SELECT id FROM agent.cases WHERE case_ref = $1", inp.case_ref)
                 if not case_row:
                     return ToolResponse.not_found("create_operations_ticket", inp.case_ref)
 
@@ -104,9 +103,7 @@ def case_tools(
                     },
                 )
         except Exception as exc:
-            return ToolResponse.error(
-                "create_operations_ticket", "DB_ERROR", str(exc), retryable=True
-            )
+            return ToolResponse.error("create_operations_ticket", "DB_ERROR", str(exc), retryable=True)
 
     async def draft_customer_notification(raw: dict[str, Any]) -> ToolResponse:
         inp = DraftCustomerNotificationInput(**raw)
@@ -114,9 +111,7 @@ def case_tools(
         draft_id = f"NOTIF-DRAFT-{uuid.uuid4().hex[:8].upper()}"
         try:
             async with db.acquire() as conn:
-                case_row = await conn.fetchrow(
-                    "SELECT id FROM agent.cases WHERE case_ref = $1", inp.case_ref
-                )
+                case_row = await conn.fetchrow("SELECT id FROM agent.cases WHERE case_ref = $1", inp.case_ref)
                 if not case_row:
                     return ToolResponse.not_found("draft_customer_notification", inp.case_ref)
 
@@ -146,9 +141,7 @@ def case_tools(
                     },
                 )
         except Exception as exc:
-            return ToolResponse.error(
-                "draft_customer_notification", "DB_ERROR", str(exc), retryable=True
-            )
+            return ToolResponse.error("draft_customer_notification", "DB_ERROR", str(exc), retryable=True)
 
     return {
         "create_case_note": create_case_note,

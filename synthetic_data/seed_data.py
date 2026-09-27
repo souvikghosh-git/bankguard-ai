@@ -11,8 +11,7 @@ from __future__ import annotations
 import asyncio
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import asyncpg
@@ -40,13 +39,33 @@ PAYMENT_RAILS = ["IMPS", "NEFT", "UPI", "RTGS"]
 TRANSACTION_TYPES = ["TRANSFER", "PAYMENT", "REFUND", "REVERSAL"]
 
 FIRST_NAMES = [
-    "Arjun", "Priya", "Rahul", "Anita", "Vikram",
-    "Sunita", "Deepak", "Kavitha", "Rajesh", "Meena",
-    "Suresh", "Pooja", "Arun", "Rekha", "Ganesh",
+    "Arjun",
+    "Priya",
+    "Rahul",
+    "Anita",
+    "Vikram",
+    "Sunita",
+    "Deepak",
+    "Kavitha",
+    "Rajesh",
+    "Meena",
+    "Suresh",
+    "Pooja",
+    "Arun",
+    "Rekha",
+    "Ganesh",
 ]
 LAST_NAMES = [
-    "Sharma", "Patel", "Kumar", "Gupta", "Singh",
-    "Nair", "Reddy", "Iyer", "Pillai", "Verma",
+    "Sharma",
+    "Patel",
+    "Kumar",
+    "Gupta",
+    "Singh",
+    "Nair",
+    "Reddy",
+    "Iyer",
+    "Pillai",
+    "Verma",
 ]
 
 # Payment event sequences per scenario
@@ -312,8 +331,10 @@ Automated reversal is STRICTLY PROHIBITED regardless of amount.
 # Generators
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
+
 
 def _past(days: int = 0, hours: int = 0, minutes: int = 0) -> datetime:
     return _now() - timedelta(days=days, hours=hours, minutes=minutes)
@@ -324,19 +345,17 @@ def gen_customers(n: int = 20) -> list[dict[str, Any]]:
     for i in range(n):
         first = random.choice(FIRST_NAMES)
         last = random.choice(LAST_NAMES)
-        customers.append({
-            "id": str(uuid.uuid4()),
-            "customer_ref": f"CUST-{10001 + i}",
-            "full_name": f"{first} {last}",
-            "email": f"{first.lower()}.{last.lower()}@example.com",
-            "phone": f"+91 9{random.randint(100000000, 999999999)}",
-            "kyc_status": random.choices(
-                ["VERIFIED", "PENDING", "REJECTED"], weights=[90, 8, 2]
-            )[0],
-            "risk_category": random.choices(
-                ["LOW", "MEDIUM", "HIGH"], weights=[75, 20, 5]
-            )[0],
-        })
+        customers.append(
+            {
+                "id": str(uuid.uuid4()),
+                "customer_ref": f"CUST-{10001 + i}",
+                "full_name": f"{first} {last}",
+                "email": f"{first.lower()}.{last.lower()}@example.com",
+                "phone": f"+91 9{random.randint(100000000, 999999999)}",
+                "kyc_status": random.choices(["VERIFIED", "PENDING", "REJECTED"], weights=[90, 8, 2])[0],
+                "risk_category": random.choices(["LOW", "MEDIUM", "HIGH"], weights=[75, 20, 5])[0],
+            }
+        )
     return customers
 
 
@@ -347,26 +366,24 @@ def gen_accounts(customers: list[dict]) -> list[dict[str, Any]]:
         n_accounts = random.randint(1, 3)
         for _ in range(n_accounts):
             bank, ifsc = random.choice(BANKS)
-            accounts.append({
-                "id": str(uuid.uuid4()),
-                "account_ref": f"ACC-{20001 + idx}",
-                "customer_id": cust["id"],
-                "account_type": random.choice(["SAVINGS", "CURRENT", "SAVINGS"]),
-                "balance": float(round(random.uniform(1000, 500000), 2)),
-                "currency": "INR",
-                "status": random.choices(
-                    ["ACTIVE", "FROZEN", "CLOSED"], weights=[92, 5, 3]
-                )[0],
-                "ifsc_code": ifsc,
-                "bank_name": bank,
-            })
+            accounts.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "account_ref": f"ACC-{20001 + idx}",
+                    "customer_id": cust["id"],
+                    "account_type": random.choice(["SAVINGS", "CURRENT", "SAVINGS"]),
+                    "balance": float(round(random.uniform(1000, 500000), 2)),
+                    "currency": "INR",
+                    "status": random.choices(["ACTIVE", "FROZEN", "CLOSED"], weights=[92, 5, 3])[0],
+                    "ifsc_code": ifsc,
+                    "bank_name": bank,
+                }
+            )
             idx += 1
     return accounts
 
 
-def gen_transactions(
-    accounts: list[dict], n: int = 100
-) -> tuple[list[dict], list[dict]]:
+def gen_transactions(accounts: list[dict], n: int = 100) -> tuple[list[dict], list[dict]]:
     """Returns (transactions, payment_events)."""
     active_accounts = [a for a in accounts if a["status"] == "ACTIVE"]
     transactions = []
@@ -396,46 +413,48 @@ def gen_transactions(
         txn_id = str(uuid.uuid4())
         txn_ref = f"TXN-{30001 + i}"
 
-        transactions.append({
-            "id": txn_id,
-            "transaction_ref": txn_ref,
-            "debit_account_id": src["id"],
-            "credit_account_id": dst["id"],
-            "amount": amount,
-            "currency": "INR",
-            "transaction_type": "TRANSFER",
-            "status": txn_status,
-            "reference_number": f"NPCI{random.randint(100000000, 999999999)}",
-            "description": f"{rail} transfer to {dst['account_ref']}",
-            "initiated_at": initiated,
-            "completed_at": initiated + timedelta(minutes=random.randint(1, 30))
-            if txn_status == "COMPLETED"
-            else None,
-            "metadata": {
-                "payment_rail": rail,
-                "scenario": scenario,
-                "beneficiary_bank": dst["bank_name"],
-                "beneficiary_ifsc": dst["ifsc_code"],
-            },
-        })
+        transactions.append(
+            {
+                "id": txn_id,
+                "transaction_ref": txn_ref,
+                "debit_account_id": src["id"],
+                "credit_account_id": dst["id"],
+                "amount": amount,
+                "currency": "INR",
+                "transaction_type": "TRANSFER",
+                "status": txn_status,
+                "reference_number": f"NPCI{random.randint(100000000, 999999999)}",
+                "description": f"{rail} transfer to {dst['account_ref']}",
+                "initiated_at": initiated,
+                "completed_at": initiated + timedelta(minutes=random.randint(1, 30))
+                if txn_status == "COMPLETED"
+                else None,
+                "metadata": {
+                    "payment_rail": rail,
+                    "scenario": scenario,
+                    "beneficiary_bank": dst["bank_name"],
+                    "beneficiary_ifsc": dst["ifsc_code"],
+                },
+            }
+        )
 
         # Generate matching payment events
         template_events = SCENARIO_EVENTS[scenario]
         for j, (code, msg_tpl) in enumerate(template_events):
-            msg = msg_tpl.format(
-                rail=rail, amount=f"{amount:,.2f}", bank=dst["bank_name"]
+            msg = msg_tpl.format(rail=rail, amount=f"{amount:,.2f}", bank=dst["bank_name"])
+            events.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "transaction_id": txn_id,
+                    "event_type": code,
+                    "event_code": code,
+                    "event_message": msg,
+                    "payment_rail": rail,
+                    "occurred_at": initiated + timedelta(seconds=j * 15),
+                    "source_system": f"{rail}-GATEWAY",
+                    "raw_payload": {"code": code, "rail": rail, "amount": amount},
+                }
             )
-            events.append({
-                "id": str(uuid.uuid4()),
-                "transaction_id": txn_id,
-                "event_type": code,
-                "event_code": code,
-                "event_message": msg,
-                "payment_rail": rail,
-                "occurred_at": initiated + timedelta(seconds=j * 15),
-                "source_system": f"{rail}-GATEWAY",
-                "raw_payload": {"code": code, "rail": rail, "amount": amount},
-            })
 
     return transactions, events
 
@@ -443,6 +462,7 @@ def gen_transactions(
 # ──────────────────────────────────────────────────────────────────────────────
 # Seeder
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 async def seed(db_url: str) -> None:
     log.info("connecting_to_database", url=db_url.split("@")[-1])
@@ -468,8 +488,13 @@ async def seed(db_url: str) -> None:
             """,
             [
                 (
-                    c["id"], c["customer_ref"], c["full_name"],
-                    c["email"], c["phone"], c["kyc_status"], c["risk_category"],
+                    c["id"],
+                    c["customer_ref"],
+                    c["full_name"],
+                    c["email"],
+                    c["phone"],
+                    c["kyc_status"],
+                    c["risk_category"],
                 )
                 for c in customers
             ],
@@ -487,9 +512,15 @@ async def seed(db_url: str) -> None:
             """,
             [
                 (
-                    a["id"], a["account_ref"], a["customer_id"],
-                    a["account_type"], a["balance"], a["currency"],
-                    a["status"], a["ifsc_code"], a["bank_name"],
+                    a["id"],
+                    a["account_ref"],
+                    a["customer_id"],
+                    a["account_type"],
+                    a["balance"],
+                    a["currency"],
+                    a["status"],
+                    a["ifsc_code"],
+                    a["bank_name"],
                 )
                 for a in accounts
             ],
@@ -510,10 +541,18 @@ async def seed(db_url: str) -> None:
             """,
             [
                 (
-                    t["id"], t["transaction_ref"], t["debit_account_id"],
-                    t["credit_account_id"], t["amount"], t["currency"],
-                    t["transaction_type"], t["status"], t["reference_number"],
-                    t["description"], t["initiated_at"], t["completed_at"],
+                    t["id"],
+                    t["transaction_ref"],
+                    t["debit_account_id"],
+                    t["credit_account_id"],
+                    t["amount"],
+                    t["currency"],
+                    t["transaction_type"],
+                    t["status"],
+                    t["reference_number"],
+                    t["description"],
+                    t["initiated_at"],
+                    t["completed_at"],
                     json.dumps(t["metadata"]),
                 )
                 for t in transactions
@@ -531,9 +570,15 @@ async def seed(db_url: str) -> None:
             """,
             [
                 (
-                    e["id"], e["transaction_id"], e["event_type"], e["event_code"],
-                    e["event_message"], e["payment_rail"], e["occurred_at"],
-                    e["source_system"], json.dumps(e["raw_payload"]),
+                    e["id"],
+                    e["transaction_id"],
+                    e["event_type"],
+                    e["event_code"],
+                    e["event_message"],
+                    e["payment_rail"],
+                    e["occurred_at"],
+                    e["source_system"],
+                    json.dumps(e["raw_payload"]),
                 )
                 for e in events
             ],
@@ -551,8 +596,13 @@ async def seed(db_url: str) -> None:
                     SET content = EXCLUDED.content,
                         title   = EXCLUDED.title
                 """,
-                p["policy_ref"], p["title"], p["category"], p["content"],
-                p["effective_date"], "1.0", True,
+                p["policy_ref"],
+                p["title"],
+                p["category"],
+                p["content"],
+                p["effective_date"],
+                "1.0",
+                True,
             )
         log.info("inserted_policies", count=len(POLICIES))
 
@@ -563,7 +613,6 @@ async def seed(db_url: str) -> None:
 
 
 if __name__ == "__main__":
-    import sys
     from config import settings
 
     # Strip asyncpg prefix for direct asyncpg connection

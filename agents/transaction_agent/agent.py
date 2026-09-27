@@ -14,7 +14,6 @@ so budget + permission enforcement is automatic.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import structlog
@@ -25,13 +24,13 @@ log = structlog.get_logger(__name__)
 
 # Root-cause detection heuristics (event_code → root_cause, confidence)
 _EVENT_HEURISTICS: dict[str, tuple[str, float]] = {
-    "BENEFICIARY_BANK_TIMEOUT":  ("BENEFICIARY_BANK_TIMEOUT",  0.85),
-    "DUPLICATE_CHECK_FAILED":    ("DUPLICATE_TRANSACTION",     0.92),
-    "RAIL_UNAVAILABLE":          ("PAYMENT_RAIL_UNAVAILABLE",  0.88),
-    "INSUFFICIENT_FUNDS":        ("INSUFFICIENT_FUNDS",        0.95),
-    "DEBIT_FAILED":              ("DEBIT_FAILURE",             0.90),
-    "CREDIT_CONFIRMED":          ("PAYMENT_COMPLETED_OK",      0.98),
-    "PAYMENT_REJECTED":          ("PAYMENT_REJECTED",          0.80),
+    "BENEFICIARY_BANK_TIMEOUT": ("BENEFICIARY_BANK_TIMEOUT", 0.85),
+    "DUPLICATE_CHECK_FAILED": ("DUPLICATE_TRANSACTION", 0.92),
+    "RAIL_UNAVAILABLE": ("PAYMENT_RAIL_UNAVAILABLE", 0.88),
+    "INSUFFICIENT_FUNDS": ("INSUFFICIENT_FUNDS", 0.95),
+    "DEBIT_FAILED": ("DEBIT_FAILURE", 0.90),
+    "CREDIT_CONFIRMED": ("PAYMENT_COMPLETED_OK", 0.98),
+    "PAYMENT_REJECTED": ("PAYMENT_REJECTED", 0.80),
 }
 
 
@@ -54,10 +53,10 @@ def make_transaction_agent(run_ctx: Any) -> Any:
         hypotheses: list[dict] = []
         errors: list[str] = []
 
-        case_data       = state.get("case_data", {})
+        case_data = state.get("case_data", {})
         transaction_ref = case_data.get("transaction_ref") or state.get("case_data", {}).get("transaction_ref")
-        customer_ref    = case_data.get("customer_ref")
-        account_ref     = None
+        customer_ref = case_data.get("customer_ref")
+        account_ref = None
 
         # ── 1. Get transaction details ─────────────────────────────────────
         if transaction_ref:
@@ -80,12 +79,14 @@ def make_transaction_agent(run_ctx: Any) -> Any:
                 last_event = txn_data.get("last_event_code", "")
                 if last_event in _EVENT_HEURISTICS:
                     root_cause, conf = _EVENT_HEURISTICS[last_event]
-                    hypotheses.append({
-                        "root_cause": root_cause,
-                        "confidence": conf,
-                        "evidence": [f"last_event={last_event}"],
-                        "source": "transaction_heuristic",
-                    })
+                    hypotheses.append(
+                        {
+                            "root_cause": root_cause,
+                            "confidence": conf,
+                            "evidence": [f"last_event={last_event}"],
+                            "source": "transaction_heuristic",
+                        }
+                    )
                     observations.append(
                         f"Heuristic match: last event '{last_event}' → "
                         f"root cause '{root_cause}' (confidence {conf:.0%})"
@@ -137,15 +138,16 @@ def make_transaction_agent(run_ctx: Any) -> Any:
                 evidence.append({"source": "get_account_summary", "content": acc_data})
                 if acc_data.get("status") == "FROZEN":
                     observations.append(
-                        f"ALERT: Account {account_ref} is FROZEN. "
-                        "This may be the root cause of the payment failure."
+                        f"ALERT: Account {account_ref} is FROZEN. This may be the root cause of the payment failure."
                     )
-                    hypotheses.append({
-                        "root_cause": "ACCOUNT_FROZEN",
-                        "confidence": 0.90,
-                        "evidence": [f"account_status=FROZEN"],
-                        "source": "account_check",
-                    })
+                    hypotheses.append(
+                        {
+                            "root_cause": "ACCOUNT_FROZEN",
+                            "confidence": 0.90,
+                            "evidence": ["account_status=FROZEN"],
+                            "source": "account_check",
+                        }
+                    )
 
             # ── 5. Recent transactions ─────────────────────────────────────
             recent_result = await run_ctx.invoke_tool(
@@ -156,10 +158,7 @@ def make_transaction_agent(run_ctx: Any) -> Any:
                 recent_txns = recent_result.data.get("transactions", [])
                 evidence.append({"source": "get_recent_transactions", "content": recent_txns})
                 pending_count = sum(1 for t in recent_txns if t["status"] == "PENDING")
-                observations.append(
-                    f"Recent transactions (7 days): {len(recent_txns)} total, "
-                    f"{pending_count} pending"
-                )
+                observations.append(f"Recent transactions (7 days): {len(recent_txns)} total, {pending_count} pending")
 
         updates: dict[str, Any] = {
             "loop_state": LoopState.OBSERVE,

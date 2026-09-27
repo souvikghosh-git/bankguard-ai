@@ -8,18 +8,17 @@ The agent never sees raw dicts — only validated contracts.
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Enumerations
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class ToolStatus(str, Enum):
+class ToolStatus(StrEnum):
     SUCCESS = "SUCCESS"
     ERROR = "ERROR"
     BLOCKED = "BLOCKED"
@@ -27,7 +26,7 @@ class ToolStatus(str, Enum):
     NOT_FOUND = "NOT_FOUND"
 
 
-class TransactionStatus(str, Enum):
+class TransactionStatus(StrEnum):
     PENDING = "PENDING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
@@ -35,27 +34,27 @@ class TransactionStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
-class PaymentRail(str, Enum):
+class PaymentRail(StrEnum):
     IMPS = "IMPS"
     NEFT = "NEFT"
     UPI = "UPI"
     RTGS = "RTGS"
 
 
-class RiskLevel(str, Enum):
+class RiskLevel(StrEnum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
     CRITICAL = "CRITICAL"
 
 
-class AccountStatus(str, Enum):
+class AccountStatus(StrEnum):
     ACTIVE = "ACTIVE"
     FROZEN = "FROZEN"
     CLOSED = "CLOSED"
 
 
-class CaseStatus(str, Enum):
+class CaseStatus(StrEnum):
     OPEN = "OPEN"
     INVESTIGATING = "INVESTIGATING"
     PENDING_APPROVAL = "PENDING_APPROVAL"
@@ -88,7 +87,7 @@ class ToolResponse(BaseModel):
         data: Any,
         idempotency_key: str | None = None,
         **meta: Any,
-    ) -> "ToolResponse":
+    ) -> ToolResponse:
         return cls(
             status=ToolStatus.SUCCESS,
             tool_name=tool_name,
@@ -104,7 +103,7 @@ class ToolResponse(BaseModel):
         error_code: str,
         error_message: str,
         retryable: bool = False,
-    ) -> "ToolResponse":
+    ) -> ToolResponse:
         return cls(
             status=ToolStatus.ERROR,
             tool_name=tool_name,
@@ -114,7 +113,7 @@ class ToolResponse(BaseModel):
         )
 
     @classmethod
-    def blocked(cls, tool_name: str, reason: str) -> "ToolResponse":
+    def blocked(cls, tool_name: str, reason: str) -> ToolResponse:
         return cls(
             status=ToolStatus.BLOCKED,
             tool_name=tool_name,
@@ -124,7 +123,7 @@ class ToolResponse(BaseModel):
         )
 
     @classmethod
-    def not_found(cls, tool_name: str, resource: str) -> "ToolResponse":
+    def not_found(cls, tool_name: str, resource: str) -> ToolResponse:
         return cls(
             status=ToolStatus.NOT_FOUND,
             tool_name=tool_name,
@@ -204,14 +203,13 @@ class CreateOperationsTicketInput(BaseModel):
 class DraftCustomerNotificationInput(BaseModel):
     case_ref: str = Field(..., description="Case reference")
     customer_ref: str = Field(..., description="Customer reference")
-    notification_type: str = Field(
-        ..., description="Type: TRANSACTION_UPDATE|CASE_OPENED|RESOLUTION|DELAY"
-    )
+    notification_type: str = Field(..., description="Type: TRANSACTION_UPDATE|CASE_OPENED|RESOLUTION|DELAY")
     message: str = Field(..., description="Draft message content (will be reviewed before send)")
 
 
 class RetryPaymentInput(BaseModel):
     """HIGH-RISK: Requires human approval before execution."""
+
     transaction_ref: str = Field(..., description="Original transaction reference")
     reason: str = Field(..., description="Documented reason for retry")
     idempotency_key: str = Field(..., description="Unique key to prevent duplicate execution")
@@ -219,6 +217,7 @@ class RetryPaymentInput(BaseModel):
 
 class RefundFeeInput(BaseModel):
     """MEDIUM-RISK: May require approval above threshold."""
+
     transaction_ref: str = Field(..., description="Transaction reference")
     fee_amount: float = Field(..., gt=0, description="Fee amount in INR to refund")
     reason: str = Field(..., description="Documented reason for refund")

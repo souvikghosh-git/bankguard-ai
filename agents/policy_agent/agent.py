@@ -52,7 +52,7 @@ def make_policy_agent(run_ctx: Any) -> Any:
 
         # Search for policies with each query (deduplicate by policy_ref)
         seen_refs: set[str] = set()
-        for query in queries[:3]:   # cap at 3 search calls
+        for query in queries[:3]:  # cap at 3 search calls
             result = await run_ctx.invoke_tool(
                 "search_policy",
                 {"query": query, "top_k": 3},
@@ -63,9 +63,7 @@ def make_policy_agent(run_ctx: Any) -> Any:
                     if ref not in seen_refs:
                         seen_refs.add(ref)
                         policies.append(p)
-                        observations.append(
-                            f"Retrieved policy {ref}: {p.get('title')}"
-                        )
+                        observations.append(f"Retrieved policy {ref}: {p.get('title')}")
 
         # Also get case history to spot patterns
         customer_ref = case_data.get("customer_ref")

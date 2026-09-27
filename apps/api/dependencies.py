@@ -6,7 +6,6 @@ FastAPI Depends() callables.
 
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import Annotated, Any
 
 import asyncpg
@@ -114,8 +113,8 @@ async def get_identity(
 async def _validate_cognito_jwt(token: str) -> dict[str, Any]:
     """Validate a Cognito JWT and extract claims."""
     try:
-        import boto3
-        from jose import jwt, JWTError
+        from jose import jwt
+
         # In production: fetch JWKS from Cognito and verify signature
         # Simplified for portfolio — extend with proper JWKS validation
         claims = jwt.get_unverified_claims(token)
@@ -134,6 +133,6 @@ async def _validate_cognito_jwt(token: str) -> dict[str, Any]:
 
 # ── Type aliases for DI ───────────────────────────────────────────────────────
 
-DBDep    = Annotated[asyncpg.Pool,       Depends(get_db)]
-ValDep   = Annotated[aioredis.Redis,     Depends(get_valkey)]
-IdentDep = Annotated[dict[str, Any],     Depends(get_identity)]
+DBDep = Annotated[asyncpg.Pool, Depends(get_db)]
+ValDep = Annotated[aioredis.Redis, Depends(get_valkey)]
+IdentDep = Annotated[dict[str, Any], Depends(get_identity)]

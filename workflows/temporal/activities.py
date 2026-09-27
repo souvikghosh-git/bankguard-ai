@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC
 from typing import Any
 
 import asyncpg
@@ -32,20 +32,21 @@ log = structlog.get_logger(__name__)
 
 # ── Input / output dataclasses ────────────────────────────────────────────────
 
+
 @dataclass
 class ApprovalRequestInput:
     case_ref: str
     run_id: str
-    action_type: str           # tool name, e.g. "retry_payment"
-    action_payload: dict       # tool input dict (JSON-serialisable)
-    risk_level: str            # HIGH | CRITICAL
+    action_type: str  # tool name, e.g. "retry_payment"
+    action_payload: dict  # tool input dict (JSON-serialisable)
+    risk_level: str  # HIGH | CRITICAL
     requested_by: str = "agent"
 
 
 @dataclass
 class ApprovalDecision:
     approval_ref: str
-    status: str                # PENDING | APPROVED | REJECTED | EXPIRED
+    status: str  # PENDING | APPROVED | REJECTED | EXPIRED
     reviewed_by: str | None
     review_notes: str | None
 
@@ -88,6 +89,7 @@ async def _get_pool() -> asyncpg.Pool:
 # Activity: create approval record
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @activity.defn(name="request_approval")
 async def request_approval_activity(inp: ApprovalRequestInput) -> str:
     """
@@ -98,12 +100,8 @@ async def request_approval_activity(inp: ApprovalRequestInput) -> str:
     db = await _get_pool()
 
     async with db.acquire() as conn:
-        case_row = await conn.fetchrow(
-            "SELECT id FROM agent.cases WHERE case_ref = $1", inp.case_ref
-        )
-        run_row = await conn.fetchrow(
-            "SELECT id FROM agent.agent_runs WHERE run_ref = $1", inp.run_id
-        )
+        case_row = await conn.fetchrow("SELECT id FROM agent.cases WHERE case_ref = $1", inp.case_ref)
+        run_row = await conn.fetchrow("SELECT id FROM agent.agent_runs WHERE run_ref = $1", inp.run_id)
         await conn.execute(
             """
             INSERT INTO agent.approvals
@@ -138,6 +136,7 @@ async def request_approval_activity(inp: ApprovalRequestInput) -> str:
 # Activity: poll for decision (called on a timer inside the workflow)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @activity.defn(name="poll_approval_decision")
 async def poll_approval_decision(approval_ref: str) -> ApprovalDecision:
     """
@@ -162,9 +161,10 @@ async def poll_approval_decision(approval_ref: str) -> ApprovalDecision:
             review_notes=None,
         )
 
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     status = row["status"]
-    if status == "PENDING" and row["expires_at"] < datetime.now(timezone.utc):
+    if status == "PENDING" and row["expires_at"] < datetime.now(UTC):
         status = "EXPIRED"
 
     return ApprovalDecision(
@@ -179,6 +179,7 @@ async def poll_approval_decision(approval_ref: str) -> ApprovalDecision:
 # Activity: execute the tool after approval
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @activity.defn(name="execute_approved_tool")
 async def execute_approved_tool(inp: ToolExecutionInput) -> ToolExecutionResult:
     """
@@ -192,6 +193,7 @@ async def execute_approved_tool(inp: ToolExecutionInput) -> ToolExecutionResult:
 
     try:
         from tools.gateway import ToolGateway
+
         gw = ToolGateway(
             db_pool=db,
             valkey=valkey,
@@ -207,6 +209,7 @@ async def execute_approved_tool(inp: ToolExecutionInput) -> ToolExecutionResult:
 
         # Bypass the approval gate now — temporarily remove from APPROVAL_REQUIRED
         from tools import gateway as gw_module
+
         saved = frozenset(gw_module.APPROVAL_REQUIRED)
         gw_module.APPROVAL_REQUIRED -= {inp.tool_name}
         try:
@@ -234,6 +237,7 @@ async def execute_approved_tool(inp: ToolExecutionInput) -> ToolExecutionResult:
 # Activity: mark expired approvals
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @activity.defn(name="expire_approval")
 async def expire_approval_activity(approval_ref: str) -> None:
     """Mark a timed-out approval as EXPIRED in the DB."""
@@ -254,10 +258,9 @@ async def expire_approval_activity(approval_ref: str) -> None:
 # Activity: notify approver (stub — extend with SNS / email / Slack)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @activity.defn(name="notify_approver")
-async def notify_approver_activity(
-    approval_ref: str, action_type: str, risk_level: str, case_ref: str
-) -> None:
+async def notify_approver_activity(approval_ref: str, action_type: str, risk_level: str, case_ref: str) -> None:
     """
     Send a notification to the approver queue.
     Currently logs only; extend with AWS SNS / SES / Slack webhook.

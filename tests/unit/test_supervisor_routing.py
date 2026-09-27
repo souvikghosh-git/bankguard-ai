@@ -12,13 +12,13 @@ from langgraph.graph import END
 
 from agents.state import LoopState, StopReason
 from agents.supervisor.supervisor import (
-    _should_stop,
+    CONFIDENCE_FLOOR,
+    MAX_ITERATIONS,
+    MIN_EVIDENCE_ITEMS,
     _route_after_review,
+    _should_stop,
     supervisor_evaluate_node,
     supervisor_plan_node,
-    MAX_ITERATIONS,
-    CONFIDENCE_FLOOR,
-    MIN_EVIDENCE_ITEMS,
 )
 
 
@@ -45,6 +45,7 @@ def _state(**overrides) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # _should_stop routing
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def test_routes_to_reviewer_when_confidence_high_and_enough_evidence():
     state = _state(
@@ -108,6 +109,7 @@ def test_does_not_route_to_transaction_agent_via_loop_state():
 # _route_after_review
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def test_ends_when_reviewer_approved():
     state = _state(reviewer_approved=True)
     assert _route_after_review(state) == END
@@ -144,6 +146,7 @@ def test_ends_when_reviewer_rejected_and_max_iterations():
 # ─────────────────────────────────────────────────────────────────────────────
 # supervisor_evaluate_node — NO_NEW_EVIDENCE delta fix
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def test_no_new_evidence_fires_on_zero_delta():
     """
@@ -201,9 +204,9 @@ def test_evaluate_updates_evidence_count_snapshot():
 
 def test_evaluate_extracts_best_hypothesis():
     hypotheses = [
-        {"root_cause": "WEAK",   "confidence": 0.40},
+        {"root_cause": "WEAK", "confidence": 0.40},
         {"root_cause": "STRONG", "confidence": 0.87},
-        {"root_cause": "MID",    "confidence": 0.65},
+        {"root_cause": "MID", "confidence": 0.65},
     ]
     state = _state(
         iteration=2,
@@ -219,6 +222,7 @@ def test_evaluate_extracts_best_hypothesis():
 # ─────────────────────────────────────────────────────────────────────────────
 # supervisor_plan_node
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def test_plan_node_increments_iteration():
     state = _state(iteration=2)

@@ -7,12 +7,13 @@ All tests are pure-Python, no DB, no network.
 from __future__ import annotations
 
 import pytest
-from harness.budget import BudgetExceeded, BudgetManager, BudgetSnapshot
 
+from harness.budget import BudgetExceeded, BudgetManager
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BudgetManager — basic accounting
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def test_initial_snapshot_is_zero():
     bm = BudgetManager(max_iterations=8, max_tool_calls=15, max_cost_usd=0.15)
@@ -37,9 +38,7 @@ def test_cost_budget_exceeded():
     bm = BudgetManager(max_cost_usd=0.0001)  # very tight budget
     with pytest.raises(BudgetExceeded) as exc_info:
         bm.record_llm_call(10_000, 10_000)
-    assert exc_info.value.budget_type in (
-        "COST_BUDGET", "INPUT_TOKEN_BUDGET", "OUTPUT_TOKEN_BUDGET"
-    )
+    assert exc_info.value.budget_type in ("COST_BUDGET", "INPUT_TOKEN_BUDGET", "OUTPUT_TOKEN_BUDGET")
 
 
 def test_iteration_limit():

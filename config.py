@@ -8,7 +8,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,9 +41,7 @@ class Settings(BaseSettings):
     postgres_db: str = "bankguard"
     postgres_user: str = "bankguard"
     postgres_password: str = "bankguard_dev_password"
-    database_url: str = (
-        "postgresql+asyncpg://bankguard:bankguard_dev_password@localhost:5432/bankguard"
-    )
+    database_url: str = "postgresql+asyncpg://bankguard:bankguard_dev_password@localhost:5432/bankguard"
 
     # ── Valkey / Redis ─────────────────────────────────────────────
     valkey_url: str = "redis://localhost:6379/0"

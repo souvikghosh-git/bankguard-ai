@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from datetime import datetime
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import pybreaker
 import structlog
@@ -26,9 +26,7 @@ log = structlog.get_logger(__name__)
 class BankGuardCircuitListener(pybreaker.CircuitBreakerListener):
     """Log all state transitions through structlog."""
 
-    def state_change(
-        self, cb: pybreaker.CircuitBreaker, old_state: Any, new_state: Any
-    ) -> None:
+    def state_change(self, cb: pybreaker.CircuitBreaker, old_state: Any, new_state: Any) -> None:
         log.warning(
             "circuit_breaker_state_change",
             name=cb.name,

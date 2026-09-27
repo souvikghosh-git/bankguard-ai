@@ -17,12 +17,13 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
-from apps.api.dependencies import DBDep, ValDep, IdentDep
+from apps.api.dependencies import DBDep, IdentDep
 
 router = APIRouter(prefix="/api/cases", tags=["Cases"])
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
+
 
 class CreateCaseRequest(BaseModel):
     title: str = Field(..., min_length=5)
@@ -49,6 +50,7 @@ class CaseResponse(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+
 @router.get("", response_model=list[CaseResponse])
 async def list_cases(
     db: DBDep,
@@ -61,7 +63,7 @@ async def list_cases(
         where = "WHERE 1=1"
         params: list[Any] = []
         if status_filter:
-            where += f" AND c.status = ${len(params)+1}"
+            where += f" AND c.status = ${len(params) + 1}"
             params.append(status_filter)
         params.append(limit)
 
@@ -113,15 +115,13 @@ async def create_case(
 ) -> dict[str, Any]:
     """Create a new investigation case."""
     case_ref = f"CASE-{uuid.uuid4().hex[:6].upper()}"
-    case_id  = str(uuid.uuid4())
+    case_id = str(uuid.uuid4())
 
     async with db.acquire() as conn:
         # Resolve customer_id
         customer_id = None
         if req.customer_ref:
-            row = await conn.fetchrow(
-                "SELECT id FROM banking.customers WHERE customer_ref = $1", req.customer_ref
-            )
+            row = await conn.fetchrow("SELECT id FROM banking.customers WHERE customer_ref = $1", req.customer_ref)
             customer_id = row["id"] if row else None
 
         # Resolve transaction_id
@@ -138,8 +138,13 @@ async def create_case(
                 (id, case_ref, title, description, status, priority, customer_id, transaction_id)
             VALUES ($1, $2, $3, $4, 'OPEN', $5, $6, $7)
             """,
-            case_id, case_ref, req.title, req.description,
-            req.priority, customer_id, transaction_id,
+            case_id,
+            case_ref,
+            req.title,
+            req.description,
+            req.priority,
+            customer_id,
+            transaction_id,
         )
 
     return {

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import signal
-import sys
 
 import structlog
 from temporalio.client import Client
@@ -28,8 +27,8 @@ from temporalio.worker import Worker
 from config import settings
 from observability.telemetry import setup_logging
 from workflows.temporal.activities import (
-    expire_approval_activity,
     execute_approved_tool,
+    expire_approval_activity,
     notify_approver_activity,
     poll_approval_decision,
     request_approval_activity,
@@ -114,7 +113,7 @@ async def submit_approval_workflow(
 
     workflow_id = f"approval-{case_ref}-{action_type}-{run_id[:8]}"
 
-    handle = await client.start_workflow(
+    await client.start_workflow(
         ApprovalWorkflow.run,
         ApprovalWorkflowInput(
             request=ApprovalRequestInput(

@@ -16,8 +16,7 @@ Bedrock Nova Micro pricing (ap-south-1):
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
 
 import structlog
 
@@ -26,12 +25,13 @@ from config import settings
 log = structlog.get_logger(__name__)
 
 # Nova Micro pricing (per 1K tokens, USD)
-COST_PER_1K_INPUT  = 0.000035
+COST_PER_1K_INPUT = 0.000035
 COST_PER_1K_OUTPUT = 0.000140
 
 
 class BudgetExceeded(Exception):
     """Raised when any budget limit is hit."""
+
     def __init__(self, reason: str, budget_type: str) -> None:
         super().__init__(reason)
         self.budget_type = budget_type
@@ -40,6 +40,7 @@ class BudgetExceeded(Exception):
 @dataclass
 class BudgetSnapshot:
     """Point-in-time budget state — returned to the loop controller."""
+
     iterations_used: int
     iterations_limit: int
     tool_calls_used: int
@@ -66,11 +67,7 @@ class BudgetSnapshot:
 
     @property
     def is_exhausted(self) -> bool:
-        return (
-            self.iterations_remaining <= 0
-            or self.tool_calls_remaining <= 0
-            or self.cost_remaining_usd <= 0
-        )
+        return self.iterations_remaining <= 0 or self.tool_calls_remaining <= 0 or self.cost_remaining_usd <= 0
 
 
 class BudgetManager:
@@ -96,33 +93,30 @@ class BudgetManager:
     ) -> None:
         self._lock = threading.Lock()
 
-        self.max_iterations     = max_iterations    or settings.max_agent_iterations
-        self.max_tool_calls     = max_tool_calls    or settings.max_tool_calls
-        self.max_cost_usd       = max_cost_usd      or settings.max_cost_per_case_usd
-        self.token_budget_input  = token_budget_input  or settings.token_budget_input
+        self.max_iterations = max_iterations or settings.max_agent_iterations
+        self.max_tool_calls = max_tool_calls or settings.max_tool_calls
+        self.max_cost_usd = max_cost_usd or settings.max_cost_per_case_usd
+        self.token_budget_input = token_budget_input or settings.token_budget_input
         self.token_budget_output = token_budget_output or settings.token_budget_output
         self.max_parallel_tools = max_parallel_tools or settings.max_parallel_tools
 
         # Counters
-        self._iterations     = 0
-        self._tool_calls     = 0
-        self._input_tokens   = 0
-        self._output_tokens  = 0
-        self._cost_usd       = 0.0
-        self._active_tools   = 0   # current parallel slots in use
+        self._iterations = 0
+        self._tool_calls = 0
+        self._input_tokens = 0
+        self._output_tokens = 0
+        self._cost_usd = 0.0
+        self._active_tools = 0  # current parallel slots in use
 
     # ── LLM usage ─────────────────────────────────────────────────────────────
 
     def record_llm_call(self, input_tokens: int, output_tokens: int) -> float:
         """Record an LLM invocation and return the incremental cost."""
-        cost = (
-            (input_tokens / 1000) * COST_PER_1K_INPUT
-            + (output_tokens / 1000) * COST_PER_1K_OUTPUT
-        )
+        cost = (input_tokens / 1000) * COST_PER_1K_INPUT + (output_tokens / 1000) * COST_PER_1K_OUTPUT
         with self._lock:
-            self._input_tokens  += input_tokens
+            self._input_tokens += input_tokens
             self._output_tokens += output_tokens
-            self._cost_usd      += cost
+            self._cost_usd += cost
 
             if self._input_tokens > self.token_budget_input:
                 raise BudgetExceeded(

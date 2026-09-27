@@ -27,10 +27,12 @@ log = structlog.get_logger(__name__)
 
 # ── Embedding model (lazy load) ───────────────────────────────────────────────
 
+
 @lru_cache(maxsize=1)
 def _load_model() -> Any:
     """Load the sentence-transformer model (once per process)."""
     from sentence_transformers import SentenceTransformer
+
     model = SentenceTransformer(settings.embedding_model, device=settings.embedding_device)
     log.info("embedding_model_loaded", model=settings.embedding_model)
     return model
@@ -51,6 +53,7 @@ async def get_embedding(text: str) -> list[float]:
 
 
 # ── Semantic store ────────────────────────────────────────────────────────────
+
 
 class SemanticMemory:
     """

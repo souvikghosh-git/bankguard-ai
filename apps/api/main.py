@@ -22,16 +22,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import make_asgi_app
 
-from config import settings
-from observability.telemetry import setup_logging, setup_telemetry
+from apps.api.routers.approvals import router as approvals_router
 from apps.api.routers.cases import router as cases_router
 from apps.api.routers.investigations import router as investigations_router
-from apps.api.routers.approvals import router as approvals_router
+from config import settings
+from observability.telemetry import setup_logging, setup_telemetry
 
 log = structlog.get_logger(__name__)
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -74,6 +75,7 @@ app.add_middleware(
 
 # ── Request logging middleware ────────────────────────────────────────────────
 
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start = time.monotonic()
@@ -88,6 +90,7 @@ async def log_requests(request: Request, call_next):
     )
     return response
 
+
 # ── Routers ───────────────────────────────────────────────────────────────────
 
 app.include_router(cases_router)
@@ -100,6 +103,7 @@ metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
 
 # ── Health check ──────────────────────────────────────────────────────────────
+
 
 @app.get("/health", tags=["System"])
 async def health() -> dict:
@@ -119,6 +123,7 @@ async def readiness() -> dict:
     # DB check
     try:
         from apps.api.dependencies import get_db
+
         pool = await get_db()
         async with pool.acquire() as conn:
             await conn.fetchval("SELECT 1")
@@ -129,6 +134,7 @@ async def readiness() -> dict:
     # Valkey check
     try:
         from apps.api.dependencies import get_valkey
+
         val = await get_valkey()
         await val.ping()
         checks["valkey"] = "ok"

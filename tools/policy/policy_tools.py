@@ -9,15 +9,16 @@ Tools:
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import structlog
 
 from tools.schemas import (
-    SearchPolicyInput,
     GetCaseHistoryInput,
-    ToolResponse,
     PolicyResult,
+    SearchPolicyInput,
+    ToolResponse,
 )
 
 log = structlog.get_logger(__name__)
@@ -84,10 +85,10 @@ def policy_tools(
                     FROM banking.policies
                     {where_clause}
                     AND (
-                        to_tsvector('english', content) @@ plainto_tsquery('english', ${len(params)+1})
-                        OR title ILIKE '%' || ${len(params)+2} || '%'
+                        to_tsvector('english', content) @@ plainto_tsquery('english', ${len(params) + 1})
+                        OR title ILIKE '%' || ${len(params) + 2} || '%'
                     )
-                    LIMIT ${len(params)+3}
+                    LIMIT ${len(params) + 3}
                 """
                 params.extend([inp.query, inp.query, inp.top_k])
                 rows = await conn.fetch(keyword_sql, *params)

@@ -26,7 +26,7 @@ import json
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +42,7 @@ DATASET_PATH = Path(__file__).parent.parent / "datasets" / "test_cases.json"
 # ─────────────────────────────────────────────────────────────────────────────
 # Loader
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def load_test_cases(
     test_refs: list[str] | None = None,
@@ -60,6 +61,7 @@ def load_test_cases(
 # Dry-run (mock agent)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _build_mock_state(tc: dict) -> dict[str, Any]:
     """
     Constructs a mock AgentState from the expected_* fields.
@@ -70,13 +72,8 @@ def _build_mock_state(tc: dict) -> dict[str, Any]:
         "root_cause": tc.get("expected_root_cause"),
         "recommended_action": tc.get("expected_action", ""),
         "requires_human_approval": tc.get("requires_human_approval", False),
-        "retrieved_policies": [
-            {"policy_ref": ref} for ref in tc.get("expected_policy_refs", [])
-        ],
-        "evidence": [
-            {"source": tool, "content": f"mock data from {tool}"}
-            for tool in tc.get("expected_tools", [])
-        ],
+        "retrieved_policies": [{"policy_ref": ref} for ref in tc.get("expected_policy_refs", [])],
+        "evidence": [{"source": tool, "content": f"mock data from {tool}"} for tool in tc.get("expected_tools", [])],
         "tool_calls_made": list(tc.get("expected_tools", [])),
         "confidence": tc.get("min_confidence", 0.85),
         "reviewer_approved": not tc.get("requires_human_approval", False),
@@ -107,6 +104,7 @@ async def run_mock_eval(test_cases: list[dict]) -> list[GradeResult]:
 # Live evaluation (real agent)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 async def _ensure_case_exists(conn: Any, tc: dict) -> None:
     """Upsert the test case into agent.cases so the runner can load it."""
     inp = tc["input_case"]
@@ -134,9 +132,10 @@ async def run_live_eval(test_cases: list[dict]) -> list[GradeResult]:
     """
     import asyncpg
     import redis.asyncio as aioredis
+
     from agents.runner import AgentRunner
-    from harness.sandbox import SandboxMode
     from config import settings
+    from harness.sandbox import SandboxMode
 
     db = await asyncpg.create_pool(
         dsn=settings.database_url.replace("postgresql+asyncpg://", "postgresql://"),
@@ -171,9 +170,9 @@ async def run_live_eval(test_cases: list[dict]) -> list[GradeResult]:
                 tools_used = final_state.get("tool_calls_made", [])
                 snap = getattr(runner.runtime, "_last_snap", None)
                 run_meta = {
-                    "run_id":     final_state.get("run_id", ""),
+                    "run_id": final_state.get("run_id", ""),
                     "tool_calls": len(tools_used),
-                    "cost_usd":   snap.cost_usd if snap else 0.0,
+                    "cost_usd": snap.cost_usd if snap else 0.0,
                     "duration_ms": duration_ms,
                     "tools_used": tools_used,
                 }
@@ -205,12 +204,13 @@ async def run_live_eval(test_cases: list[dict]) -> list[GradeResult]:
 # Report
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def print_report(results: list[GradeResult], run_ref: str) -> None:
-    total     = len(results)
-    passed    = sum(1 for r in results if r.outcome_score >= 0.70)
-    unsafe    = sum(1 for r in results if r.unsafe_action_taken)
+    total = len(results)
+    passed = sum(1 for r in results if r.outcome_score >= 0.70)
+    unsafe = sum(1 for r in results if r.unsafe_action_taken)
     avg_score = sum(r.outcome_score for r in results) / total if total else 0
-    avg_cost  = sum(r.cost_usd for r in results) / total if total else 0
+    avg_cost = sum(r.cost_usd for r in results) / total if total else 0
 
     print("\n" + "═" * 72)
     print(f"  BankGuard AI — Regression Eval: {run_ref}")
@@ -249,18 +249,21 @@ def print_report(results: list[GradeResult], run_ref: str) -> None:
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="BankGuard AI Regression Eval")
-    parser.add_argument("--test-refs",   nargs="*")
-    parser.add_argument("--category",    help="Filter by category")
-    parser.add_argument("--dry-run",     action="store_true", default=False,
-                        help="Use mock agent (no DB/LLM required)")
-    parser.add_argument("--live",        action="store_true",
-                        help="Run against real agent (requires DB + LLM)")
-    parser.add_argument("--fail-under",  type=float, default=0.0, metavar="THRESHOLD",
-                        help="Exit 1 if avg outcome score < THRESHOLD (e.g. 0.70)")
-    parser.add_argument("--no-unsafe",   action="store_true",
-                        help="Exit 2 if any unsafe action is detected")
+    parser.add_argument("--test-refs", nargs="*")
+    parser.add_argument("--category", help="Filter by category")
+    parser.add_argument("--dry-run", action="store_true", default=False, help="Use mock agent (no DB/LLM required)")
+    parser.add_argument("--live", action="store_true", help="Run against real agent (requires DB + LLM)")
+    parser.add_argument(
+        "--fail-under",
+        type=float,
+        default=0.0,
+        metavar="THRESHOLD",
+        help="Exit 1 if avg outcome score < THRESHOLD (e.g. 0.70)",
+    )
+    parser.add_argument("--no-unsafe", action="store_true", help="Exit 2 if any unsafe action is detected")
     args = parser.parse_args()
 
     # Default to dry-run when neither flag given
@@ -270,7 +273,7 @@ def main() -> None:
     test_cases = load_test_cases(args.test_refs, args.category)
     print(f"\nLoaded {len(test_cases)} test case(s).")
 
-    run_ref = f"EVAL-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    run_ref = f"EVAL-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
 
     if args.live:
         print("Running LIVE evaluation (real agent + DB + LLM)...")

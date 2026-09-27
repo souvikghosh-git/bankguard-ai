@@ -8,8 +8,8 @@ and budget-awareness (stops retrying if cost budget is exceeded).
 from __future__ import annotations
 
 import asyncio
-import random
-from typing import Any, Callable, Awaitable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 import structlog
 from tenacity import (
@@ -18,7 +18,6 @@ from tenacity import (
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential_jitter,
-    before_sleep_log,
 )
 
 from config import settings
@@ -71,9 +70,7 @@ class RetryPolicy:
 
         async for attempt_obj in AsyncRetrying(
             stop=stop_after_attempt(self.max_attempts),
-            wait=wait_exponential_jitter(
-                initial=self.min_wait, max=self.max_wait, jitter=self.jitter
-            ),
+            wait=wait_exponential_jitter(initial=self.min_wait, max=self.max_wait, jitter=self.jitter),
             retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
             reraise=False,
         ):

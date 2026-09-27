@@ -15,31 +15,31 @@ Loop states:
 
 from __future__ import annotations
 
-from enum import Enum
-from typing import Any, Annotated
 import operator
+from enum import StrEnum
+from typing import Annotated, Any
 
 from langgraph.graph import MessagesState
 
 
-class LoopState(str, Enum):
-    PLAN     = "PLAN"
-    ACT      = "ACT"
-    OBSERVE  = "OBSERVE"
+class LoopState(StrEnum):
+    PLAN = "PLAN"
+    ACT = "ACT"
+    OBSERVE = "OBSERVE"
     EVALUATE = "EVALUATE"
     CONCLUDE = "CONCLUDE"
     ESCALATE = "ESCALATE"
 
 
-class StopReason(str, Enum):
-    CASE_RESOLVED         = "CASE_RESOLVED"
-    CONFIDENCE_REACHED    = "CONFIDENCE_REACHED"
-    NO_NEW_EVIDENCE       = "NO_NEW_EVIDENCE"
-    MAX_ITERATIONS        = "MAX_ITERATIONS"
-    BUDGET_EXCEEDED       = "BUDGET_EXCEEDED"
-    REPEATED_TOOL_CALL    = "REPEATED_TOOL_CALL"
+class StopReason(StrEnum):
+    CASE_RESOLVED = "CASE_RESOLVED"
+    CONFIDENCE_REACHED = "CONFIDENCE_REACHED"
+    NO_NEW_EVIDENCE = "NO_NEW_EVIDENCE"
+    MAX_ITERATIONS = "MAX_ITERATIONS"
+    BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
+    REPEATED_TOOL_CALL = "REPEATED_TOOL_CALL"
     CRITICAL_TOOL_FAILURE = "CRITICAL_TOOL_FAILURE"
-    HUMAN_ESCALATION      = "HUMAN_ESCALATION"
+    HUMAN_ESCALATION = "HUMAN_ESCALATION"
 
 
 class AgentState(MessagesState):
@@ -69,9 +69,9 @@ class AgentState(MessagesState):
     evidence: Annotated[list[dict[str, Any]], operator.add]
 
     # ── Agent outputs ──────────────────────────────────────────────────────
-    investigation_plan: list[str]          # steps planned in PLAN phase
+    investigation_plan: list[str]  # steps planned in PLAN phase
     observations: Annotated[list[str], operator.add]  # running narrative
-    hypotheses: list[dict[str, Any]]       # [{root_cause, confidence, evidence}]
+    hypotheses: list[dict[str, Any]]  # [{root_cause, confidence, evidence}]
 
     # ── Policy retrieval results ───────────────────────────────────────────
     retrieved_policies: list[dict[str, Any]]

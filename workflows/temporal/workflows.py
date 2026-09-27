@@ -43,7 +43,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
 
 import structlog
 from temporalio import workflow
@@ -55,8 +54,8 @@ with workflow.unsafe.imports_passed_through():
         ApprovalRequestInput,
         ToolExecutionInput,
         ToolExecutionResult,
-        expire_approval_activity,
         execute_approved_tool,
+        expire_approval_activity,
         notify_approver_activity,
         poll_approval_decision,
         request_approval_activity,
@@ -85,7 +84,7 @@ class ApprovalWorkflowInput:
 @dataclass
 class ApprovalWorkflowResult:
     approval_ref: str
-    decision: str           # APPROVED | REJECTED | EXPIRED
+    decision: str  # APPROVED | REJECTED | EXPIRED
     tool_executed: bool
     tool_result: ToolExecutionResult | None
     reviewed_by: str | None

@@ -13,8 +13,7 @@ Features:
 
 from __future__ import annotations
 
-from enum import Enum
-from typing import Any
+from enum import StrEnum
 
 import structlog
 
@@ -23,11 +22,11 @@ from config import settings
 log = structlog.get_logger(__name__)
 
 
-class SandboxMode(str, Enum):
-    LIVE      = "live"        # full execution (production)
-    DRY_RUN   = "dry_run"     # logic runs, no DB writes
-    READ_ONLY = "read_only"   # only read tools allowed
-    EVAL      = "eval"        # evaluation: reads + case notes only
+class SandboxMode(StrEnum):
+    LIVE = "live"  # full execution (production)
+    DRY_RUN = "dry_run"  # logic runs, no DB writes
+    READ_ONLY = "read_only"  # only read tools allowed
+    EVAL = "eval"  # evaluation: reads + case notes only
 
 
 # Tools that are NEVER allowed regardless of mode
@@ -78,11 +77,11 @@ class Sandbox:
         self.run_id = run_id
 
     @classmethod
-    def from_env(cls, run_id: str = "") -> "Sandbox":
+    def from_env(cls, run_id: str = "") -> Sandbox:
         """Derive sandbox mode from APP_ENV setting."""
         env_mode_map = {
             "production": SandboxMode.LIVE,
-            "staging":    SandboxMode.DRY_RUN,
+            "staging": SandboxMode.DRY_RUN,
             "development": SandboxMode.READ_ONLY,
         }
         mode = env_mode_map.get(settings.app_env, SandboxMode.READ_ONLY)

@@ -30,8 +30,8 @@ from typing import Any
 
 import structlog
 
-from context.token_budget import TokenBudgetManager
 from context.ranking import rank_policies, rank_transactions
+from context.token_budget import TokenBudgetManager
 from guardrails.pii.presidio_filter import mask_pii
 
 log = structlog.get_logger(__name__)
@@ -65,6 +65,7 @@ When you have reached a conclusion, output your finding in the specified JSON fo
 
 # ── Data classes for context contract ────────────────────────────────────────
 
+
 @dataclass
 class CaseContext:
     case_ref: str
@@ -78,7 +79,7 @@ class CaseContext:
 @dataclass
 class CustomerContext:
     customer_ref: str
-    full_name: str           # will be masked → "Customer C-1001"
+    full_name: str  # will be masked → "Customer C-1001"
     kyc_status: str
     risk_category: str
     account_count: int
@@ -86,7 +87,7 @@ class CustomerContext:
 
 @dataclass
 class EvidenceItem:
-    source: str              # tool that produced this
+    source: str  # tool that produced this
     content: Any
     timestamp: str | None = None
     relevance: float | None = None
@@ -102,6 +103,7 @@ class BudgetInfo:
 @dataclass
 class ContextContract:
     """The full structured context handed to the agent."""
+
     system_instructions: str
     case: CaseContext
     customer_summary: CustomerContext | None
@@ -119,7 +121,7 @@ class ContextContract:
         user_content = json.dumps(self._to_payload(), indent=2, default=str)
         return [
             {"role": "system", "content": self.system_instructions},
-            {"role": "user",   "content": user_content},
+            {"role": "user", "content": user_content},
         ]
 
     def _to_payload(self) -> dict:
@@ -128,15 +130,16 @@ class ContextContract:
             "customer_summary": asdict(self.customer_summary) if self.customer_summary else None,
             "transaction": self.transaction,
             "related_transactions": self.related_transactions[:5],  # cap at 5
-            "policies": self.policies[:3],                          # cap at 3
-            "previous_cases": self.previous_cases[:2],              # cap at 2
+            "policies": self.policies[:3],  # cap at 3
+            "previous_cases": self.previous_cases[:2],  # cap at 2
             "current_evidence": [asdict(e) for e in self.current_evidence],
-            "agent_observations": self.agent_observations[-10:],    # last 10
+            "agent_observations": self.agent_observations[-10:],  # last 10
             "remaining_budget": asdict(self.remaining_budget),
         }
 
 
 # ── Context Builder ───────────────────────────────────────────────────────────
+
 
 class ContextBuilder:
     """
@@ -178,9 +181,7 @@ class ContextBuilder:
         self.token_mgr.reset()
 
         # 1. System prompt (always included, high priority)
-        system_instructions = self.token_mgr.allocate(
-            "system", SYSTEM_PROMPT, priority=10
-        )
+        system_instructions = self.token_mgr.allocate("system", SYSTEM_PROMPT, priority=10)
 
         # 2. Case (always included)
         case_ctx = CaseContext(
@@ -224,7 +225,7 @@ class ContextBuilder:
             for rt in ranked[:5]:
                 trimmed = {k: rt[k] for k in ("transaction_ref", "amount", "status", "initiated_at") if k in rt}
                 token_ok = self.token_mgr.allocate(
-                    f"related_txn_{rt.get('transaction_ref','')}", json.dumps(trimmed, default=str), priority=6
+                    f"related_txn_{rt.get('transaction_ref', '')}", json.dumps(trimmed, default=str), priority=6
                 )
                 if token_ok:
                     ranked_related.append(trimmed)
@@ -244,9 +245,7 @@ class ContextBuilder:
                     "category": p.get("category"),
                     "content": p.get("content", "")[:1500],  # cap policy content
                 }
-                token_ok = self.token_mgr.allocate(
-                    f"policy_{p.get('policy_ref','')}", json.dumps(trimmed), priority=7
-                )
+                token_ok = self.token_mgr.allocate(f"policy_{p.get('policy_ref', '')}", json.dumps(trimmed), priority=7)
                 if token_ok:
                     selected_policies.append(trimmed)
 
@@ -260,9 +259,7 @@ class ContextBuilder:
                     "resolution": pc.get("resolution"),
                     "status": pc.get("status"),
                 }
-                token_ok = self.token_mgr.allocate(
-                    f"prev_case_{pc.get('case_ref','')}", json.dumps(mini), priority=4
-                )
+                token_ok = self.token_mgr.allocate(f"prev_case_{pc.get('case_ref', '')}", json.dumps(mini), priority=4)
                 if token_ok:
                     prev_cases_trimmed.append(mini)
 
@@ -314,10 +311,20 @@ class ContextBuilder:
     def _trim_transaction(txn: dict) -> dict:
         """Keep only the fields the agent needs; drop raw internals."""
         keep = {
-            "transaction_ref", "debit_account_ref", "amount", "currency",
-            "transaction_type", "status", "payment_rail", "reference_number",
-            "description", "initiated_at", "completed_at",
-            "beneficiary_bank", "beneficiary_ifsc", "last_event_code",
+            "transaction_ref",
+            "debit_account_ref",
+            "amount",
+            "currency",
+            "transaction_type",
+            "status",
+            "payment_rail",
+            "reference_number",
+            "description",
+            "initiated_at",
+            "completed_at",
+            "beneficiary_bank",
+            "beneficiary_ifsc",
+            "last_event_code",
         }
         trimmed = {k: v for k, v in txn.items() if k in keep}
         # Keep only last 5 events to save tokens

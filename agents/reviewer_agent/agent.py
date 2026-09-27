@@ -27,8 +27,14 @@ log = structlog.get_logger(__name__)
 
 # Actions that are always unsafe for the agent to execute autonomously
 UNSAFE_ACTIONS: list[str] = [
-    "reverse", "reversal", "freeze", "block card", "retry payment",
-    "refund", "cancel account", "unfreeze",
+    "reverse",
+    "reversal",
+    "freeze",
+    "block card",
+    "retry payment",
+    "refund",
+    "cancel account",
+    "unfreeze",
 ]
 
 
@@ -46,11 +52,11 @@ def make_reviewer_agent(run_ctx: Any) -> Any:
         observations: list[str] = []
         approved = True
 
-        evidence          = state.get("evidence", [])
-        root_cause        = state.get("root_cause")
+        evidence = state.get("evidence", [])
+        root_cause = state.get("root_cause")
         recommended_action = state.get("recommended_action", "")
-        confidence        = state.get("confidence", 0.0)
-        policies          = state.get("retrieved_policies", [])
+        confidence = state.get("confidence", 0.0)
+        policies = state.get("retrieved_policies", [])
         requires_approval = state.get("requires_human_approval", False)
 
         # ── Check 1: Evidence grounding ────────────────────────────────────
@@ -67,10 +73,7 @@ def make_reviewer_agent(run_ctx: Any) -> Any:
 
         # ── Check 3: Confidence threshold ──────────────────────────────────
         if confidence < 0.60:
-            concerns.append(
-                f"Confidence {confidence:.0%} is below 60% threshold — "
-                "more investigation needed."
-            )
+            concerns.append(f"Confidence {confidence:.0%} is below 60% threshold — more investigation needed.")
             if confidence < 0.40:
                 approved = False
 
@@ -79,8 +82,7 @@ def make_reviewer_agent(run_ctx: Any) -> Any:
         for unsafe_kw in UNSAFE_ACTIONS:
             if unsafe_kw in action_lower:
                 concerns.append(
-                    f"Proposed action contains '{unsafe_kw}' — "
-                    "this REQUIRES human approval before execution."
+                    f"Proposed action contains '{unsafe_kw}' — this REQUIRES human approval before execution."
                 )
                 # Don't reject — just flag as requiring approval
                 break
@@ -90,22 +92,24 @@ def make_reviewer_agent(run_ctx: Any) -> Any:
             policy_texts = " ".join(p.get("content", "") for p in policies[:2]).lower()
             # Check for explicit prohibitions in policy text
             prohibition_phrases = [
-                "prohibited", "must not", "shall not", "do not", "never",
-                "forbidden", "not allowed",
+                "prohibited",
+                "must not",
+                "shall not",
+                "do not",
+                "never",
+                "forbidden",
+                "not allowed",
             ]
             if any(ph in policy_texts for ph in prohibition_phrases):
                 # Simple check: does the action appear near a prohibition?
                 # In production this would use an LLM judge
-                observations.append(
-                    "Policy contains prohibitions — verify action does not violate them."
-                )
+                observations.append("Policy contains prohibitions — verify action does not violate them.")
 
         # ── Check 6: High-risk action requires approval flag ───────────────
         action_risk = state.get("action_risk_level", "LOW")
         if action_risk in ("HIGH", "CRITICAL") and not requires_approval:
             concerns.append(
-                f"Action risk level is {action_risk} but requires_human_approval=False. "
-                "Forcing approval requirement."
+                f"Action risk level is {action_risk} but requires_human_approval=False. Forcing approval requirement."
             )
             # Force it
             state = {**state, "requires_human_approval": True}
@@ -126,14 +130,16 @@ def make_reviewer_agent(run_ctx: Any) -> Any:
                     },
                     {
                         "role": "user",
-                        "content": json.dumps({
-                            "root_cause": root_cause,
-                            "confidence": confidence,
-                            "recommended_action": recommended_action,
-                            "evidence_count": len(evidence),
-                            "policies_applied": [p.get("policy_ref") for p in policies],
-                            "existing_concerns": concerns,
-                        }),
+                        "content": json.dumps(
+                            {
+                                "root_cause": root_cause,
+                                "confidence": confidence,
+                                "recommended_action": recommended_action,
+                                "evidence_count": len(evidence),
+                                "policies_applied": [p.get("policy_ref") for p in policies],
+                                "existing_concerns": concerns,
+                            }
+                        ),
                     },
                 ]
                 response = await run_ctx.invoke_llm(review_prompt, temperature=0.0)

@@ -25,10 +25,11 @@ import hashlib
 import json
 import time
 import uuid
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, AsyncGenerator
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Any
 
 import structlog
 from litellm import acompletion, token_counter
@@ -42,17 +43,17 @@ from harness.sandbox import Sandbox, SandboxMode, SandboxViolation
 log = structlog.get_logger(__name__)
 
 
-class StoppingReason(str, Enum):
-    CASE_RESOLVED          = "CASE_RESOLVED"
-    CONFIDENCE_REACHED     = "CONFIDENCE_REACHED"
-    NO_NEW_EVIDENCE        = "NO_NEW_EVIDENCE"
-    MAX_ITERATIONS         = "MAX_ITERATIONS"
-    BUDGET_EXCEEDED        = "BUDGET_EXCEEDED"
-    REPEATED_TOOL_CALL     = "REPEATED_TOOL_CALL"
-    CRITICAL_TOOL_FAILURE  = "CRITICAL_TOOL_FAILURE"
-    HUMAN_ESCALATION       = "HUMAN_ESCALATION"
-    CANCELLED              = "CANCELLED"
-    ERROR                  = "ERROR"
+class StoppingReason(StrEnum):
+    CASE_RESOLVED = "CASE_RESOLVED"
+    CONFIDENCE_REACHED = "CONFIDENCE_REACHED"
+    NO_NEW_EVIDENCE = "NO_NEW_EVIDENCE"
+    MAX_ITERATIONS = "MAX_ITERATIONS"
+    BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
+    REPEATED_TOOL_CALL = "REPEATED_TOOL_CALL"
+    CRITICAL_TOOL_FAILURE = "CRITICAL_TOOL_FAILURE"
+    HUMAN_ESCALATION = "HUMAN_ESCALATION"
+    CANCELLED = "CANCELLED"
+    ERROR = "ERROR"
 
 
 @dataclass
@@ -98,7 +99,7 @@ class AgentRuntime:
         case_id: str,
         identity: dict[str, Any],
         budget_overrides: dict[str, Any] | None = None,
-    ) -> AsyncGenerator["RunContext", None]:
+    ) -> AsyncGenerator[RunContext, None]:
         """
         Create a run context.  All agent actions go through this context.
 
@@ -109,11 +110,7 @@ class AgentRuntime:
         started = time.monotonic()
 
         budget = BudgetManager(**(budget_overrides or {}))
-        sandbox = (
-            Sandbox(self._sandbox_mode, run_id)
-            if self._sandbox_mode
-            else Sandbox.from_env(run_id)
-        )
+        sandbox = Sandbox(self._sandbox_mode, run_id) if self._sandbox_mode else Sandbox.from_env(run_id)
         retry = RetryPolicy()
         audit_log: list[dict] = []
 
@@ -226,7 +223,7 @@ class RunContext:
         self._final_output: dict[str, Any] | None = None
         self._result: RunResult | None = None
         self._error: str | None = None
-        self._tool_call_hashes: set[str] = set()   # duplicate detection
+        self._tool_call_hashes: set[str] = set()  # duplicate detection
 
         # Observability handles — set by AgentRunner.stream_investigation()
         self._langfuse_trace: Any = None
@@ -238,6 +235,7 @@ class RunContext:
     def _get_gateway(self) -> Any:
         if self._gateway is None:
             from tools.gateway import ToolGateway
+
             self._gateway = ToolGateway(
                 db_pool=self.db,
                 valkey=self.valkey,
@@ -274,8 +272,17 @@ class RunContext:
         # If the model name already contains a provider prefix (e.g. "gpt-4o-mini",
         # "ollama/llama3") use it as-is; otherwise prepend "bedrock/".
         def _model_string(m: str) -> str:
-            providers = ("gpt-", "claude-", "gemini-", "ollama/", "openai/",
-                         "anthropic/", "mistral/", "groq/", "bedrock/")
+            providers = (
+                "gpt-",
+                "claude-",
+                "gemini-",
+                "ollama/",
+                "openai/",
+                "anthropic/",
+                "mistral/",
+                "groq/",
+                "bedrock/",
+            )
             return m if any(m.startswith(p) for p in providers) else f"bedrock/{m}"
 
         # Build LiteLLM kwargs
@@ -289,7 +296,7 @@ class RunContext:
             kwargs["tools"] = tools
 
         # Call with retry + circuit breaker
-        breaker = get_breaker("bedrock-llm", fail_max=3, reset_timeout=30)
+        get_breaker("bedrock-llm", fail_max=3, reset_timeout=30)
 
         async def _call() -> Any:
             return await asyncio.wait_for(
@@ -310,13 +317,14 @@ class RunContext:
 
         # Record token usage and cost
         usage = getattr(response, "usage", None)
-        in_tok  = getattr(usage, "prompt_tokens",     est_input) if usage else est_input
-        out_tok = getattr(usage, "completion_tokens", 100)       if usage else 100
+        in_tok = getattr(usage, "prompt_tokens", est_input) if usage else est_input
+        out_tok = getattr(usage, "completion_tokens", 100) if usage else 100
         cost = self.budget.record_llm_call(in_tok, out_tok)
 
         # Fire observability — Prometheus counters + Langfuse generation
         try:
             from observability.telemetry import record_llm_call
+
             langfuse_trace = getattr(self, "_langfuse_trace", None)
             record_llm_call(
                 model=chosen_model,
@@ -364,6 +372,7 @@ class RunContext:
             )
             self._stopping_reason = StoppingReason.REPEATED_TOOL_CALL
             from tools.schemas import ToolResponse
+
             return ToolResponse.error(
                 tool_name=tool_name,
                 error_code="DUPLICATE_TOOL_CALL",

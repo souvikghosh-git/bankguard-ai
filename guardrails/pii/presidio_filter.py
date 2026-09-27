@@ -25,7 +25,7 @@ log = structlog.get_logger(__name__)
 # Try to import Presidio; fall back gracefully
 _presidio_available = False
 try:
-    from presidio_analyzer import AnalyzerEngine, RecognizerResult
+    from presidio_analyzer import AnalyzerEngine
     from presidio_anonymizer import AnonymizerEngine
     from presidio_anonymizer.entities import OperatorConfig
 
@@ -41,12 +41,12 @@ except ImportError:
 
 _PATTERNS: list[tuple[str, str, str]] = [
     # (name, pattern, replacement)
-    ("PHONE_IN",      r"\+?91[-\s]?[6-9]\d{9}",               "[PHONE]"),
-    ("PHONE_GENERIC", r"\b[6-9]\d{9}\b",                       "[PHONE]"),
-    ("EMAIL",         r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", "[EMAIL]"),
-    ("PAN",           r"\b[A-Z]{5}[0-9]{4}[A-Z]\b",           "[PAN]"),
-    ("AADHAAR",       r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b",     "[AADHAAR]"),
-    ("CARD",          r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b", "[CARD_NUMBER]"),
+    ("PHONE_IN", r"\+?91[-\s]?[6-9]\d{9}", "[PHONE]"),
+    ("PHONE_GENERIC", r"\b[6-9]\d{9}\b", "[PHONE]"),
+    ("EMAIL", r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", "[EMAIL]"),
+    ("PAN", r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", "[PAN]"),
+    ("AADHAAR", r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b", "[AADHAAR]"),
+    ("CARD", r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b", "[CARD_NUMBER]"),
 ]
 
 
@@ -66,8 +66,11 @@ async def mask_pii(text: str, entities: list[str] | None = None) -> str:
 def _presidio_mask(text: str, entities: list[str] | None = None) -> str:
     """Use Presidio for comprehensive PII detection."""
     detect_entities = entities or [
-        "PHONE_NUMBER", "EMAIL_ADDRESS", "CREDIT_CARD",
-        "IBAN_CODE", "PERSON",
+        "PHONE_NUMBER",
+        "EMAIL_ADDRESS",
+        "CREDIT_CARD",
+        "IBAN_CODE",
+        "PERSON",
     ]
     try:
         results = _analyzer.analyze(text=text, entities=detect_entities, language="en")
@@ -75,10 +78,10 @@ def _presidio_mask(text: str, entities: list[str] | None = None) -> str:
             text=text,
             analyzer_results=results,
             operators={
-                "PERSON":       OperatorConfig("replace", {"new_value": "[NAME]"}),
+                "PERSON": OperatorConfig("replace", {"new_value": "[NAME]"}),
                 "PHONE_NUMBER": OperatorConfig("replace", {"new_value": "[PHONE]"}),
-                "EMAIL_ADDRESS":OperatorConfig("replace", {"new_value": "[EMAIL]"}),
-                "CREDIT_CARD":  OperatorConfig("replace", {"new_value": "[CARD]"}),
+                "EMAIL_ADDRESS": OperatorConfig("replace", {"new_value": "[EMAIL]"}),
+                "CREDIT_CARD": OperatorConfig("replace", {"new_value": "[CARD]"}),
             },
         )
         # Also apply regex for Indian-specific patterns Presidio may miss
@@ -108,8 +111,11 @@ async def filter_context_dict(data: dict[str, Any]) -> dict[str, Any]:
             result[k] = await filter_context_dict(v)
         elif isinstance(v, list):
             result[k] = [
-                (await filter_context_dict(item) if isinstance(item, dict)
-                 else (await mask_pii(item) if isinstance(item, str) else item))
+                (
+                    await filter_context_dict(item)
+                    if isinstance(item, dict)
+                    else (await mask_pii(item) if isinstance(item, str) else item)
+                )
                 for item in v
             ]
         else:

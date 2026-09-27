@@ -6,31 +6,35 @@ Uses a mock DB and Valkey so no real services are needed.
 
 from __future__ import annotations
 
-import asyncio
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tools.gateway import ToolGateway, APPROVAL_REQUIRED, TOOL_RISK
+from tools.gateway import APPROVAL_REQUIRED, TOOL_RISK, ToolGateway
 from tools.schemas import ToolStatus
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fixtures
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _make_gateway(role: str = "AGENT", extra: dict | None = None) -> ToolGateway:
     """Return a ToolGateway with mocked DB and Valkey."""
-    # Mock DB pool
+    # Mock connection — acquire() returns an async context manager
     mock_conn = AsyncMock()
     mock_conn.fetchrow = AsyncMock(return_value=None)
     mock_conn.execute = AsyncMock()
+    # Make the conn itself usable as an async context manager
     mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
     mock_conn.__aexit__ = AsyncMock(return_value=False)
 
+    # acquire() must return an async context manager that yields mock_conn
+    mock_acquire_cm = AsyncMock()
+    mock_acquire_cm.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_acquire_cm.__aexit__ = AsyncMock(return_value=False)
+
     mock_pool = MagicMock()
-    mock_pool.acquire = MagicMock(return_value=mock_conn)
+    mock_pool.acquire = MagicMock(return_value=mock_acquire_cm)
 
     # Mock Valkey
     mock_valkey = AsyncMock()
@@ -51,6 +55,7 @@ def _make_gateway(role: str = "AGENT", extra: dict | None = None) -> ToolGateway
 # ─────────────────────────────────────────────────────────────────────────────
 # Local RBAC
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def test_agent_can_call_read_tools():
     gw = _make_gateway(role="AGENT")
@@ -95,6 +100,7 @@ def test_unknown_role_blocked():
 # Approval gate
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_approval_gate_blocks_retry_payment():
     gw = _make_gateway(role="RISK_OFFICER")  # role permits, but gate still blocks
@@ -131,6 +137,7 @@ def test_all_critical_tools_in_approval_required():
 # Idempotency key derivation
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def test_idempotency_key_is_deterministic():
     gw = _make_gateway()
     key1 = gw._derive_idempotency_key("create_case_note", {"case_ref": "CASE-001", "content": "hi"})
@@ -147,7 +154,7 @@ def test_idempotency_key_differs_for_different_inputs():
 
 def test_idempotency_key_differs_for_different_tools():
     gw = _make_gateway()
-    key1 = gw._derive_idempotency_key("create_case_note",       {"case_ref": "X"})
+    key1 = gw._derive_idempotency_key("create_case_note", {"case_ref": "X"})
     key2 = gw._derive_idempotency_key("create_operations_ticket", {"case_ref": "X"})
     assert key1 != key2
 
@@ -156,10 +163,12 @@ def test_idempotency_key_differs_for_different_tools():
 # OPA fallback behaviour
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_opa_connection_error_falls_back_to_allow():
     """If OPA is unreachable the gateway should ALLOW (local RBAC is the primary gate)."""
     import httpx
+
     gw = _make_gateway(role="AGENT")
     with patch("httpx.AsyncClient") as mock_client_cls:
         mock_client = AsyncMock()

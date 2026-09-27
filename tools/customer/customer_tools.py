@@ -9,29 +9,30 @@ Tools:
 
 from __future__ import annotations
 
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import structlog
 
 from tools.schemas import (
-    GetCustomerProfileInput,
-    GetAccountSummaryInput,
-    CheckTransactionLimitInput,
-    ToolResponse,
-    CustomerProfile,
-    AccountSummary,
     AccountStatus,
+    AccountSummary,
+    CheckTransactionLimitInput,
+    CustomerProfile,
+    GetAccountSummaryInput,
+    GetCustomerProfileInput,
     LimitCheckResult,
+    ToolResponse,
 )
 
 log = structlog.get_logger(__name__)
 
 # Per-rail limits in INR (from PAY-LIM-301)
 RAIL_LIMITS: dict[str, dict[str, float]] = {
-    "IMPS":  {"per_txn": 500_000,    "per_day": 1_000_000},
-    "NEFT":  {"per_txn": 1_000_000,  "per_day": 2_000_000},
-    "UPI":   {"per_txn": 100_000,    "per_day": 200_000},
-    "RTGS":  {"per_txn": 10_000_000, "per_day": 50_000_000},
+    "IMPS": {"per_txn": 500_000, "per_day": 1_000_000},
+    "NEFT": {"per_txn": 1_000_000, "per_day": 2_000_000},
+    "UPI": {"per_txn": 100_000, "per_day": 200_000},
+    "RTGS": {"per_txn": 10_000_000, "per_day": 50_000_000},
 }
 
 
@@ -177,9 +178,7 @@ def customer_tools(
                     result.model_dump(mode="json"),
                 )
         except Exception as exc:
-            return ToolResponse.error(
-                "check_transaction_limit", "DB_ERROR", str(exc), retryable=True
-            )
+            return ToolResponse.error("check_transaction_limit", "DB_ERROR", str(exc), retryable=True)
 
     return {
         "get_customer_profile": get_customer_profile,

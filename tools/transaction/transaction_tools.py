@@ -10,18 +10,19 @@ Tools:
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import structlog
 
 from tools.schemas import (
-    GetTransactionInput,
     GetPaymentStatusInput,
     GetRecentTransactionsInput,
+    GetTransactionInput,
+    PaymentEvent,
     ToolResponse,
     TransactionDetails,
     TransactionStatus,
-    PaymentEvent,
 )
 
 log = structlog.get_logger(__name__)
@@ -176,20 +177,20 @@ def transaction_tools(
                 txns = []
                 for r in rows:
                     meta = json.loads(r["metadata"] or "{}")
-                    txns.append({
-                        "transaction_ref": r["transaction_ref"],
-                        "amount": float(r["amount"]),
-                        "currency": r["currency"],
-                        "type": r["transaction_type"],
-                        "status": r["status"],
-                        "payment_rail": meta.get("payment_rail"),
-                        "initiated_at": str(r["initiated_at"]),
-                    })
+                    txns.append(
+                        {
+                            "transaction_ref": r["transaction_ref"],
+                            "amount": float(r["amount"]),
+                            "currency": r["currency"],
+                            "type": r["transaction_type"],
+                            "status": r["status"],
+                            "payment_rail": meta.get("payment_rail"),
+                            "initiated_at": str(r["initiated_at"]),
+                        }
+                    )
                 return ToolResponse.success("get_recent_transactions", {"transactions": txns})
         except Exception as exc:
-            return ToolResponse.error(
-                "get_recent_transactions", "DB_ERROR", str(exc), retryable=True
-            )
+            return ToolResponse.error("get_recent_transactions", "DB_ERROR", str(exc), retryable=True)
 
     return {
         "get_transaction_details": get_transaction_details,

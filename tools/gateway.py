@@ -22,11 +22,11 @@ import hashlib
 import json
 import time
 import uuid
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
 import structlog
-from pydantic import BaseModel
 
 from config import settings
 from tools.schemas import ToolResponse, ToolStatus
@@ -36,23 +36,23 @@ log = structlog.get_logger(__name__)
 # ── Risk / approval tables ────────────────────────────────────────────────────
 
 TOOL_RISK: dict[str, str] = {
-    "get_transaction_details":      "LOW",
-    "get_account_summary":          "LOW",
-    "get_customer_profile":         "LOW",
-    "get_recent_transactions":      "LOW",
-    "get_payment_status":           "LOW",
-    "search_policy":                "LOW",
-    "get_case_history":             "LOW",
-    "check_transaction_limit":      "LOW",
-    "get_payment_rail_status":      "LOW",
-    "create_case_note":             "LOW",
-    "create_operations_ticket":     "LOW",
-    "draft_customer_notification":  "LOW",
-    "retry_payment":                "HIGH",
-    "refund_fee":                   "MEDIUM",
-    "block_card":                   "HIGH",
-    "freeze_account":               "CRITICAL",
-    "reverse_transaction":          "CRITICAL",
+    "get_transaction_details": "LOW",
+    "get_account_summary": "LOW",
+    "get_customer_profile": "LOW",
+    "get_recent_transactions": "LOW",
+    "get_payment_status": "LOW",
+    "search_policy": "LOW",
+    "get_case_history": "LOW",
+    "check_transaction_limit": "LOW",
+    "get_payment_rail_status": "LOW",
+    "create_case_note": "LOW",
+    "create_operations_ticket": "LOW",
+    "draft_customer_notification": "LOW",
+    "retry_payment": "HIGH",
+    "refund_fee": "MEDIUM",
+    "block_card": "HIGH",
+    "freeze_account": "CRITICAL",
+    "reverse_transaction": "CRITICAL",
 }
 
 # Tools that require a human-approved Temporal workflow before execution
@@ -103,11 +103,11 @@ class ToolGateway:
         self._call_count = 0
 
         # Lazy-import tool registries to avoid circular deps at module load
-        from tools.transaction import transaction_tools
-        from tools.payments import payment_tools
-        from tools.customer import customer_tools
-        from tools.policy import policy_tools
         from tools.case_management import case_tools
+        from tools.customer import customer_tools
+        from tools.payments import payment_tools
+        from tools.policy import policy_tools
+        from tools.transaction import transaction_tools
 
         self._registry: dict[str, Callable[..., Awaitable[ToolResponse]]] = {
             **transaction_tools(db_pool),
@@ -139,7 +139,21 @@ class ToolGateway:
             identity_role=self.identity.get("role"),
         )
 
-        # ── 1. Tool must be registered ────────────────────────────────────────
+        # ── 1. Approval gate for HIGH / CRITICAL tools ────────────────────────
+        # Check FIRST — these tools are intentionally not in the registry.
+        # They are only executable via the Temporal approval workflow.
+        if tool_name in APPROVAL_REQUIRED:
+            result = ToolResponse.blocked(
+                tool_name,
+                f"Tool '{tool_name}' (risk={TOOL_RISK.get(tool_name, 'CRITICAL')}) requires human "
+                "approval via Temporal workflow before execution. "
+                "The caller should invoke ApprovalService.request_approval() and "
+                "await the Temporal signal before retrying.",
+            )
+            await self._safe_persist_audit(call_id, tool_name, tool_input, result, started)
+            return result
+
+        # ── 2. Tool must be registered ────────────────────────────────────────
         if tool_name not in self._registry:
             result = ToolResponse.error(
                 tool_name=tool_name,
@@ -147,33 +161,21 @@ class ToolGateway:
                 error_message=f"Tool '{tool_name}' is not registered.",
                 retryable=False,
             )
-            await self._persist_audit(call_id, tool_name, tool_input, result, started)
+            await self._safe_persist_audit(call_id, tool_name, tool_input, result, started)
             return result
 
-        # ── 2. Local RBAC ─────────────────────────────────────────────────────
+        # ── 3. Local RBAC ─────────────────────────────────────────────────────
         perm = self._check_local_permission(tool_name)
         if not perm["allowed"]:
             result = ToolResponse.blocked(tool_name, perm["reason"])
-            await self._persist_audit(call_id, tool_name, tool_input, result, started)
+            await self._safe_persist_audit(call_id, tool_name, tool_input, result, started)
             return result
 
-        # ── 3. OPA (live HTTP call) ───────────────────────────────────────────
+        # ── 4. OPA (live HTTP call) ───────────────────────────────────────────
         opa_ok, opa_reason = await self._check_opa(tool_name, tool_input)
         if not opa_ok:
             result = ToolResponse.blocked(tool_name, f"OPA denied: {opa_reason}")
-            await self._persist_audit(call_id, tool_name, tool_input, result, started)
-            return result
-
-        # ── 4. Approval gate for HIGH / CRITICAL tools ────────────────────────
-        if tool_name in APPROVAL_REQUIRED:
-            result = ToolResponse.blocked(
-                tool_name,
-                f"Tool '{tool_name}' (risk={TOOL_RISK[tool_name]}) requires human "
-                "approval via Temporal workflow before execution. "
-                "The caller should invoke ApprovalService.request_approval() and "
-                "await the Temporal signal before retrying.",
-            )
-            await self._persist_audit(call_id, tool_name, tool_input, result, started)
+            await self._safe_persist_audit(call_id, tool_name, tool_input, result, started)
             return result
 
         # ── 5. Idempotency — auto-generate key for write tools ────────────────
@@ -191,11 +193,12 @@ class ToolGateway:
                     idempotency_key=idempotency_key,
                     idempotent_replay=True,
                 )
-                await self._persist_audit(call_id, tool_name, tool_input, result, started)
+                await self._safe_persist_audit(call_id, tool_name, tool_input, result, started)
                 return result
 
         # ── 6. Execute with timeout ───────────────────────────────────────────
         import asyncio
+
         try:
             result = await asyncio.wait_for(
                 self._registry[tool_name](tool_input),
@@ -223,7 +226,7 @@ class ToolGateway:
             await self._store_idempotency(idempotency_key, result.data)
 
         # ── 8. Persist audit to DB ────────────────────────────────────────────
-        await self._persist_audit(call_id, tool_name, tool_input, result, started)
+        await self._safe_persist_audit(call_id, tool_name, tool_input, result, started)
 
         log.info(
             "tool_gateway_complete",
@@ -246,34 +249,63 @@ class ToolGateway:
                 return {
                     "allowed": False,
                     "reason": (
-                        f"AGENT role cannot directly execute {risk}-risk tool "
-                        f"'{tool_name}'. Human approval required."
+                        f"AGENT role cannot directly execute {risk}-risk tool '{tool_name}'. Human approval required."
                     ),
                 }
             return {"allowed": True, "reason": ""}
 
         role_permissions: dict[str, set[str]] = {
             "OPERATIONS_ANALYST": {
-                "get_transaction_details", "get_account_summary", "get_customer_profile",
-                "get_recent_transactions", "get_payment_status", "search_policy",
-                "get_case_history", "check_transaction_limit", "get_payment_rail_status",
-                "create_case_note", "create_operations_ticket", "draft_customer_notification",
-                "retry_payment", "refund_fee",
+                "get_transaction_details",
+                "get_account_summary",
+                "get_customer_profile",
+                "get_recent_transactions",
+                "get_payment_status",
+                "search_policy",
+                "get_case_history",
+                "check_transaction_limit",
+                "get_payment_rail_status",
+                "create_case_note",
+                "create_operations_ticket",
+                "draft_customer_notification",
+                "retry_payment",
+                "refund_fee",
             },
             "SENIOR_ANALYST": {
-                "get_transaction_details", "get_account_summary", "get_customer_profile",
-                "get_recent_transactions", "get_payment_status", "search_policy",
-                "get_case_history", "check_transaction_limit", "get_payment_rail_status",
-                "create_case_note", "create_operations_ticket", "draft_customer_notification",
-                "retry_payment", "refund_fee", "block_card",
+                "get_transaction_details",
+                "get_account_summary",
+                "get_customer_profile",
+                "get_recent_transactions",
+                "get_payment_status",
+                "search_policy",
+                "get_case_history",
+                "check_transaction_limit",
+                "get_payment_rail_status",
+                "create_case_note",
+                "create_operations_ticket",
+                "draft_customer_notification",
+                "retry_payment",
+                "refund_fee",
+                "block_card",
             },
             "RISK_OFFICER": {
-                "get_transaction_details", "get_account_summary", "get_customer_profile",
-                "get_recent_transactions", "get_payment_status", "search_policy",
-                "get_case_history", "check_transaction_limit", "get_payment_rail_status",
-                "create_case_note", "create_operations_ticket", "draft_customer_notification",
-                "retry_payment", "refund_fee", "block_card",
-                "freeze_account", "reverse_transaction",
+                "get_transaction_details",
+                "get_account_summary",
+                "get_customer_profile",
+                "get_recent_transactions",
+                "get_payment_status",
+                "search_policy",
+                "get_case_history",
+                "check_transaction_limit",
+                "get_payment_rail_status",
+                "create_case_note",
+                "create_operations_ticket",
+                "draft_customer_notification",
+                "retry_payment",
+                "refund_fee",
+                "block_card",
+                "freeze_account",
+                "reverse_transaction",
             },
             "ADMIN": set(TOOL_RISK.keys()),
         }
@@ -290,9 +322,7 @@ class ToolGateway:
     # OPA live call
     # ─────────────────────────────────────────────────────────────────────────
 
-    async def _check_opa(
-        self, tool_name: str, tool_input: dict[str, Any]
-    ) -> tuple[bool, str]:
+    async def _check_opa(self, tool_name: str, tool_input: dict[str, Any]) -> tuple[bool, str]:
         """
         Call OPA synchronously.  Returns (allowed: bool, reason: str).
         Falls back to ALLOW on connection error (OPA is a second layer;
@@ -356,15 +386,27 @@ class ToolGateway:
 
     async def _store_idempotency(self, key: str, data: Any, ttl: int = 3600) -> None:
         try:
-            await self.valkey.setex(
-                f"idem:{key}", ttl, json.dumps(data, default=str)
-            )
+            await self.valkey.setex(f"idem:{key}", ttl, json.dumps(data, default=str))
         except Exception:
             pass
 
     # ─────────────────────────────────────────────────────────────────────────
     # Audit persistence (PostgreSQL + in-memory list)
     # ─────────────────────────────────────────────────────────────────────────
+
+    async def _safe_persist_audit(
+        self,
+        call_id: str,
+        tool_name: str,
+        tool_input: dict,
+        result: ToolResponse,
+        started: float,
+    ) -> None:
+        """Non-fatal wrapper — audit failure must NEVER corrupt the tool result."""
+        try:
+            await self._persist_audit(call_id, tool_name, tool_input, result, started)
+        except Exception as exc:
+            log.warning("audit_persist_swallowed", error=str(exc), tool=tool_name)
 
     async def _persist_audit(
         self,

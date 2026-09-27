@@ -14,10 +14,10 @@ import json
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from apps.api.dependencies import DBDep, ValDep, IdentDep
+from apps.api.dependencies import DBDep, IdentDep, ValDep
 
 router = APIRouter(tags=["Investigations"])
 log = structlog.get_logger(__name__)
@@ -32,6 +32,7 @@ class InvestigateResponse(BaseModel):
 
 # ── REST: Start investigation ─────────────────────────────────────────────────
 
+
 @router.post("/api/investigate/{case_ref}", response_model=InvestigateResponse)
 async def start_investigation(
     case_ref: str,
@@ -45,14 +46,12 @@ async def start_investigation(
     to track progress.
     """
     from agents.runner import AgentRunner
-    from harness.sandbox import SandboxMode
     from config import settings
+    from harness.sandbox import SandboxMode
 
     # Verify case exists
     async with db.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT case_ref, status FROM agent.cases WHERE case_ref = $1", case_ref
-        )
+        row = await conn.fetchrow("SELECT case_ref, status FROM agent.cases WHERE case_ref = $1", case_ref)
     if not row:
         raise HTTPException(status_code=404, detail=f"Case {case_ref} not found")
     if row["status"] in ("RESOLVED", "CLOSED"):
@@ -66,24 +65,20 @@ async def start_investigation(
 
     # Run investigation in background task; store progress in Valkey
     import uuid
+
     run_id = f"RUN-{uuid.uuid4().hex[:12].upper()}"
 
     async def _run_in_background() -> None:
         try:
-            await valkey.setex(
-                f"run:{run_id}:status", 3600, json.dumps({"status": "RUNNING"})
-            )
+            await valkey.setex(f"run:{run_id}:status", 3600, json.dumps({"status": "RUNNING"}))
             async for event in runner.stream_investigation(case_ref, identity):
-                await valkey.setex(
-                    f"run:{run_id}:latest_event", 3600, json.dumps(event, default=str)
-                )
-            await valkey.setex(
-                f"run:{run_id}:status", 3600, json.dumps({"status": "COMPLETED"})
-            )
+                await valkey.setex(f"run:{run_id}:latest_event", 3600, json.dumps(event, default=str))
+            await valkey.setex(f"run:{run_id}:status", 3600, json.dumps({"status": "COMPLETED"}))
         except Exception as exc:
             log.exception("investigation_background_error", run_id=run_id, error=str(exc))
             await valkey.setex(
-                f"run:{run_id}:status", 3600,
+                f"run:{run_id}:status",
+                3600,
                 json.dumps({"status": "FAILED", "error": str(exc)}),
             )
 
@@ -98,6 +93,7 @@ async def start_investigation(
 
 
 # ── REST: Poll status ─────────────────────────────────────────────────────────
+
 
 @router.get("/api/investigate/{case_ref}/status")
 async def get_investigation_status(
@@ -114,6 +110,7 @@ async def get_investigation_status(
 
 
 # ── WebSocket: Real-time stream ───────────────────────────────────────────────
+
 
 @router.websocket("/ws/investigate/{case_ref}")
 async def ws_investigate(
@@ -139,6 +136,7 @@ async def ws_investigate(
     token = websocket.query_params.get("token", "dev-analyst-token")
     from apps.api.dependencies import DEV_IDENTITIES
     from config import settings
+
     identity = DEV_IDENTITIES.get(token, DEV_IDENTITIES["dev-analyst-token"])
 
     from agents.runner import AgentRunner
@@ -181,7 +179,7 @@ def _make_serialisable(obj: Any) -> Any:
         return {k: _make_serialisable(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [_make_serialisable(i) for i in obj]
-    if hasattr(obj, "value"):      # Enum
+    if hasattr(obj, "value"):  # Enum
         return obj.value
     if hasattr(obj, "isoformat"):  # datetime
         return obj.isoformat()
