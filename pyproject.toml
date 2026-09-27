@@ -90,6 +90,25 @@ dev = [
     "ipython>=8.27.0",
 ]
 
+[tool.setuptools.packages.find]
+# Flat-layout: tell setuptools exactly which top-level packages to include.
+# Without this, setuptools refuses to build because it finds multiple
+# top-level directories and cannot determine intent.
+include = [
+    "agents*",
+    "apps*",
+    "approvals*",
+    "context*",
+    "evals*",
+    "guardrails*",
+    "harness*",
+    "memory*",
+    "observability*",
+    "synthetic_data*",
+    "tools*",
+    "workflows*",
+]
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"
