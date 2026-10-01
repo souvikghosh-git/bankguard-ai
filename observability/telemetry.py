@@ -121,15 +121,26 @@ unsafe_actions_blocked_total = Counter(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+_logging_configured = False
+
+
 def setup_logging(log_level: str = "INFO") -> None:
     """
-    Configure structlog for JSON output.
-    merge_contextvars ensures run_id / trace_id set via
-    structlog.contextvars.bind_contextvars() appear in every log line.
+    Configure structlog for JSON output. Idempotent — safe to call multiple times.
+    Uses stdlib.LoggerFactory so add_logger_name processor works correctly.
     """
+    global _logging_configured
+    if _logging_configured:
+        return
+    _logging_configured = True
+
+    logging.basicConfig(
+        format="%(message)s",
+        level=getattr(logging, log_level.upper(), logging.INFO),
+    )
     structlog.configure(
         processors=[
-            structlog.contextvars.merge_contextvars,  # <-- injects run_id, trace_id
+            structlog.contextvars.merge_contextvars,
             structlog.stdlib.add_log_level,
             structlog.stdlib.add_logger_name,
             structlog.processors.TimeStamper(fmt="iso"),
@@ -140,7 +151,7 @@ def setup_logging(log_level: str = "INFO") -> None:
         ],
         wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, log_level.upper(), logging.INFO)),
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
+        logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )
 
@@ -153,10 +164,15 @@ _otel_initialized = False
 
 
 def setup_telemetry(service_name: str | None = None) -> None:
-    """Initialise the OTel SDK. Call once at application startup."""
+    """Initialise the OTel SDK. Call once at application startup.
+    Always calls setup_logging() first so structlog is configured before we log.
+    """
     global _otel_initialized
     if _otel_initialized:
         return
+
+    # Ensure structlog is configured before we try to use it
+    setup_logging()
 
     from config import settings
 
@@ -183,9 +199,14 @@ def setup_telemetry(service_name: str | None = None) -> None:
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
         _otel_initialized = True
-        structlog.get_logger(__name__).info("otel_initialized", endpoint=settings.otel_exporter_otlp_endpoint)
+        structlog.get_logger(__name__).info(
+            "otel_initialized", endpoint=settings.otel_exporter_otlp_endpoint
+        )
     except Exception as exc:
-        structlog.get_logger(__name__).warning("otel_setup_failed_proceeding_without_tracing", error=str(exc))
+        _otel_initialized = True  # don't retry — proceed without tracing
+        structlog.get_logger(__name__).warning(
+            "otel_setup_failed_proceeding_without_tracing", error=str(exc)
+        )
 
 
 def get_tracer(name: str) -> Any:
