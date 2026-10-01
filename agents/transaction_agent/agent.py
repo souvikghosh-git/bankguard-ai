@@ -18,19 +18,23 @@ from typing import Any
 
 import structlog
 
-from agents.state import AgentState, LoopState
+from agents.state import AgentState, LoopState, StopReason
 
 log = structlog.get_logger(__name__)
 
 # Root-cause detection heuristics (event_code → root_cause, confidence)
 _EVENT_HEURISTICS: dict[str, tuple[str, float]] = {
     "BENEFICIARY_BANK_TIMEOUT": ("BENEFICIARY_BANK_TIMEOUT", 0.85),
+    "PENDING_RECONCILIATION": ("BENEFICIARY_BANK_TIMEOUT", 0.85),  # same root cause
     "DUPLICATE_CHECK_FAILED": ("DUPLICATE_TRANSACTION", 0.92),
     "RAIL_UNAVAILABLE": ("PAYMENT_RAIL_UNAVAILABLE", 0.88),
+    "FALLBACK_FAILED": ("PAYMENT_RAIL_UNAVAILABLE", 0.85),
     "INSUFFICIENT_FUNDS": ("INSUFFICIENT_FUNDS", 0.95),
     "DEBIT_FAILED": ("DEBIT_FAILURE", 0.90),
     "CREDIT_CONFIRMED": ("PAYMENT_COMPLETED_OK", 0.98),
+    "PAYMENT_COMPLETED": ("PAYMENT_COMPLETED_OK", 0.98),
     "PAYMENT_REJECTED": ("PAYMENT_REJECTED", 0.80),
+    "PAYMENT_FAILED": ("PAYMENT_FAILURE", 0.82),
 }
 
 
@@ -57,6 +61,23 @@ def make_transaction_agent(run_ctx: Any) -> Any:
         transaction_ref = case_data.get("transaction_ref") or state.get("case_data", {}).get("transaction_ref")
         customer_ref = case_data.get("customer_ref")
         account_ref = None
+
+        # If neither transaction_ref nor customer_ref is linked, we cannot investigate.
+        # Signal NO_NEW_EVIDENCE immediately rather than looping.
+        if not transaction_ref and not customer_ref:
+            observations.append(
+                "[TransactionAgent] No transaction_ref or customer_ref linked to this case. "
+                "Cannot gather evidence. Please re-create the case with a valid Transaction Ref or Customer Ref."
+            )
+            errors.append("NO_REFS: Case has no transaction_ref or customer_ref — investigation cannot proceed.")
+            return {
+                "loop_state": LoopState.OBSERVE,
+                "evidence": [],
+                "observations": observations,
+                "hypotheses": [],
+                "errors": errors,
+                "stop_reason": StopReason.NO_NEW_EVIDENCE,
+            }
 
         # ── 1. Get transaction details ─────────────────────────────────────
         if transaction_ref:

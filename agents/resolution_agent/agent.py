@@ -184,9 +184,13 @@ def make_resolution_agent(run_ctx: Any) -> Any:
                 requires_approval = True
                 observations.append("Unknown root cause — escalating to human.")
 
-        # ── Create case note ───────────────────────────────────────────────
+        # ── Create case note — only on final resolution (when stop_reason is set
+        #    or confidence is high enough), not every loop iteration ─────────────
         case_ref = state.get("case_ref", "")
-        if case_ref and recommended_action:
+        is_final = (
+            confidence >= 0.70 or state.get("stop_reason") is not None or action_risk_level in ("HIGH", "CRITICAL")
+        )
+        if case_ref and recommended_action and is_final:
             note_result = await run_ctx.invoke_tool(
                 "create_case_note",
                 {

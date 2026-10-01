@@ -203,21 +203,31 @@ def page_investigate() -> None:
         )
         col3, col4 = st.columns(2)
         customer_ref = col3.text_input("Customer Ref (optional)", placeholder="CUST-10001")
-        transaction_ref = col4.text_input("Transaction Ref (optional)", placeholder="TXN-30001")
+        transaction_ref = col4.text_input(
+            "Transaction Ref *",
+            placeholder="TXN-30001",
+            help="Required — the agent needs a transaction to investigate.",
+        )
         submitted = st.form_submit_button("🚀 Create & Investigate", type="primary")
 
     if submitted:
-        with st.spinner("Creating case..."):
-            body: dict[str, Any] = {"title": title, "description": description, "priority": priority}
-            if customer_ref:
-                body["customer_ref"] = customer_ref.strip()
-            if transaction_ref:
-                body["transaction_ref"] = transaction_ref.strip()
-            case_resp = api_post("/api/cases", body)
+        if not transaction_ref.strip() and not customer_ref.strip():
+            st.error(
+                "⚠️ Please enter at least a Transaction Ref or Customer Ref. "
+                "The agent needs one of these to investigate."
+            )
+        else:
+            with st.spinner("Creating case..."):
+                body: dict[str, Any] = {"title": title, "description": description, "priority": priority}
+                if customer_ref:
+                    body["customer_ref"] = customer_ref.strip()
+                if transaction_ref:
+                    body["transaction_ref"] = transaction_ref.strip()
+                case_resp = api_post("/api/cases", body)
 
-        if case_resp:
-            st.success(f"✅ Case created: **{case_resp['case_ref']}**")
-            st.session_state["active_case_ref"] = case_resp["case_ref"]
+            if case_resp:
+                st.success(f"✅ Case created: **{case_resp['case_ref']}**")
+                st.session_state["active_case_ref"] = case_resp["case_ref"]
 
     active_case = st.session_state.get("active_case_ref")
     if active_case:
