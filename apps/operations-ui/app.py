@@ -380,30 +380,20 @@ def page_observability() -> None:
         st.markdown("#### 📐 Agent Limits (config)")
         from config import settings  # noqa: PLC0415
 
-        st.table(
-            {
-                "Limit": [
-                    "Max iterations",
-                    "Max tool calls",
-                    "Max cost/case",
-                    "Tool timeout",
-                    "Model timeout",
-                    "Max parallel tools",
-                ],
-                "Value": [
-                    settings.max_agent_iterations,
-                    settings.max_tool_calls,
-                    f"${settings.max_cost_per_case_usd:.2f}",
-                    f"{settings.tool_timeout_seconds}s",
-                    f"{settings.model_timeout_seconds}s",
-                    settings.max_parallel_tools,
-                ],
-            }
-        )
+        for label, value in {
+            "Max iterations": str(settings.max_agent_iterations),
+            "Max tool calls": str(settings.max_tool_calls),
+            "Max cost/case": f"${settings.max_cost_per_case_usd:.2f}",
+            "Tool timeout": f"{settings.tool_timeout_seconds}s",
+            "Model timeout": f"{settings.model_timeout_seconds}s",
+            "Max parallel tools": str(settings.max_parallel_tools),
+        }.items():
+            st.markdown(f"**{label}:** `{value}`")
 
     with col3:
         st.markdown("#### 💰 LLM Pricing (Nova Micro)")
-        st.table({"Direction": ["Input", "Output"], "Price": ["$0.035 / 1M tokens", "$0.140 / 1M tokens"]})
+        for direction, price in {"Input": "$0.035 / 1M tokens", "Output": "$0.140 / 1M tokens"}.items():
+            st.markdown(f"**{direction}:** `{price}`")
         st.caption("Budget: ~$1.75 / 1,000 investigations at 30K input + 5K output each.")
 
     st.divider()
