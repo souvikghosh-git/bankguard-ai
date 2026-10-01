@@ -71,9 +71,20 @@ async def start_investigation(
     async def _run_in_background() -> None:
         try:
             await valkey.setex(f"run:{run_id}:status", 3600, json.dumps({"status": "RUNNING"}))
+            got_error = False
             async for event in runner.stream_investigation(case_ref, identity):
                 await valkey.setex(f"run:{run_id}:latest_event", 3600, json.dumps(event, default=str))
-            await valkey.setex(f"run:{run_id}:status", 3600, json.dumps({"status": "COMPLETED"}))
+                if event.get("type") == "error":
+                    got_error = True
+            # If the generator yielded an error event, mark as FAILED
+            if got_error:
+                await valkey.setex(
+                    f"run:{run_id}:status",
+                    3600,
+                    json.dumps({"status": "FAILED", "error": "See case notes for details"}),
+                )
+            else:
+                await valkey.setex(f"run:{run_id}:status", 3600, json.dumps({"status": "COMPLETED"}))
         except Exception as exc:
             log.exception("investigation_background_error", run_id=run_id, error=str(exc))
             await valkey.setex(

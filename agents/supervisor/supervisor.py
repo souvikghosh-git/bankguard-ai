@@ -56,6 +56,14 @@ def _should_stop(state: AgentState) -> str:
     if stop_reason == StopReason.BUDGET_EXCEEDED:
         return "escalate"
 
+    # NO_NEW_EVIDENCE — route based on how confident we are
+    if stop_reason == StopReason.NO_NEW_EVIDENCE:
+        return "reviewer" if confidence >= 0.50 else "escalate"
+
+    # REPEATED_TOOL_CALL / CRITICAL_TOOL_FAILURE — escalate immediately
+    if stop_reason in (StopReason.REPEATED_TOOL_CALL, StopReason.CRITICAL_TOOL_FAILURE):
+        return "escalate"
+
     # Hard limits
     if iteration >= MAX_ITERATIONS:
         log.info("max_iterations_reached", iteration=iteration)
@@ -69,8 +77,7 @@ def _should_stop(state: AgentState) -> str:
     if confidence >= CONFIDENCE_FLOOR and len(evidence) >= MIN_EVIDENCE_ITEMS:
         return "reviewer"
 
-    # Still need more evidence — always loop back to transaction_agent
-    # (previously this checked loop_state which was always EVALUATE at this point)
+    # Still need more evidence
     return "transaction_agent"
 
 

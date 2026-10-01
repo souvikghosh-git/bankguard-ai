@@ -207,6 +207,22 @@ class AgentRunner:
                 except Exception as exc:
                     log.exception("graph_stream_error", error=str(exc))
                     tctx["final_status"] = "error"
+                    # Still persist what we have — case must not stay OPEN
+                    final_state["root_cause"] = final_state.get("root_cause") or "INVESTIGATION_ERROR"
+                    final_state["recommended_action"] = (
+                        final_state.get("recommended_action")
+                        or f"Investigation failed: {exc}. Escalate to human operator."
+                    )
+                    final_state["requires_human_approval"] = True
+                    await self._update_case_status(
+                        case_ref=case_ref,
+                        root_cause=final_state["root_cause"],
+                        resolution=final_state["recommended_action"],
+                        confidence=final_state.get("confidence"),
+                        requires_approval=True,
+                        action_risk_level="HIGH",
+                        status="ESCALATED",
+                    )
                     yield {"type": "error", "message": str(exc)}
                     return
 
@@ -245,6 +261,7 @@ class AgentRunner:
                     resolution=final_state.get("recommended_action"),
                     confidence=final_state.get("confidence"),
                     requires_approval=final_state.get("requires_human_approval", False),
+                    action_risk_level=final_state.get("action_risk_level"),
                 )
 
                 await self._update_run_record(
@@ -360,25 +377,41 @@ class AgentRunner:
         resolution: str | None,
         confidence: float | None,
         requires_approval: bool,
+        action_risk_level: str | None = None,
+        status: str | None = None,
     ) -> None:
-        new_status = "PENDING_APPROVAL" if requires_approval else "RESOLVED"
+        if status is None:
+            status = "PENDING_APPROVAL" if requires_approval else "RESOLVED"
+        log.info(
+            "updating_case_status",
+            case_ref=case_ref,
+            new_status=status,
+            root_cause=root_cause,
+            confidence=confidence,
+        )
         try:
             async with self.db.acquire() as conn:
                 await conn.execute(
                     """
                     UPDATE agent.cases
-                    SET status     = $2,
-                        root_cause = $3,
-                        resolution = $4,
-                        confidence = $5,
-                        updated_at = NOW()
+                    SET status                   = $2,
+                        root_cause               = $3,
+                        resolution               = $4,
+                        confidence               = $5,
+                        requires_human_approval  = $6,
+                        action_risk_level        = $7,
+                        updated_at               = NOW()
                     WHERE case_ref = $1
                     """,
                     case_ref,
-                    new_status,
+                    status,
                     root_cause,
                     resolution,
                     confidence,
+                    requires_approval,
+                    action_risk_level,
                 )
+                log.info("case_status_updated", case_ref=case_ref, status=status)
         except Exception as exc:
-            log.warning("update_case_status_error", error=str(exc))
+            # Log at ERROR level — this must never be silently swallowed
+            log.error("update_case_status_FAILED", case_ref=case_ref, error=str(exc))

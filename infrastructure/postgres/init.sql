@@ -109,6 +109,8 @@ CREATE TABLE IF NOT EXISTS agent.cases (
     root_cause      TEXT,
     resolution      TEXT,
     confidence      FLOAT,
+    requires_human_approval BOOLEAN DEFAULT FALSE,
+    action_risk_level       VARCHAR(20),
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW(),
     closed_at       TIMESTAMPTZ
