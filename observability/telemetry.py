@@ -199,14 +199,10 @@ def setup_telemetry(service_name: str | None = None) -> None:
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
         _otel_initialized = True
-        structlog.get_logger(__name__).info(
-            "otel_initialized", endpoint=settings.otel_exporter_otlp_endpoint
-        )
+        structlog.get_logger(__name__).info("otel_initialized", endpoint=settings.otel_exporter_otlp_endpoint)
     except Exception as exc:
         _otel_initialized = True  # don't retry — proceed without tracing
-        structlog.get_logger(__name__).warning(
-            "otel_setup_failed_proceeding_without_tracing", error=str(exc)
-        )
+        structlog.get_logger(__name__).warning("otel_setup_failed_proceeding_without_tracing", error=str(exc))
 
 
 def get_tracer(name: str) -> Any:

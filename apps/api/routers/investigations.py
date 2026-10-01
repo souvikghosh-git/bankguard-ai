@@ -60,7 +60,7 @@ async def start_investigation(
             detail=f"Case {case_ref} is already {row['status']}",
         )
 
-    sandbox = SandboxMode.READ_ONLY if settings.is_development else SandboxMode.LIVE
+    sandbox = SandboxMode.EVAL if settings.is_development else SandboxMode.LIVE
     runner = AgentRunner(db, valkey, sandbox_mode=sandbox)
 
     # Run investigation in background task; store progress in Valkey
@@ -153,7 +153,7 @@ async def ws_investigate(
     from agents.runner import AgentRunner
     from harness.sandbox import SandboxMode
 
-    sandbox = SandboxMode.READ_ONLY if settings.is_development else SandboxMode.LIVE
+    sandbox = SandboxMode.EVAL if settings.is_development else SandboxMode.LIVE
     runner = AgentRunner(db, valkey, sandbox_mode=sandbox)
 
     try:

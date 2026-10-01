@@ -130,8 +130,13 @@ async def create_case(req: CreateCaseRequest, db: DBDep, identity: IdentDep) -> 
                 (id, case_ref, title, description, status, priority, customer_id, transaction_id)
             VALUES ($1, $2, $3, $4, 'OPEN', $5, $6, $7)
             """,
-            case_id, case_ref, req.title, req.description,
-            req.priority, customer_id, transaction_id,
+            case_id,
+            case_ref,
+            req.title,
+            req.description,
+            req.priority,
+            customer_id,
+            transaction_id,
         )
 
         # Fetch back the real row with actual timestamps

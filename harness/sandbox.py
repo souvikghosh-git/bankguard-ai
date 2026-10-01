@@ -78,13 +78,18 @@ class Sandbox:
 
     @classmethod
     def from_env(cls, run_id: str = "") -> Sandbox:
-        """Derive sandbox mode from APP_ENV setting."""
+        """Derive sandbox mode from APP_ENV setting.
+
+        development → EVAL  (reads + case notes/tickets/notifications — no financial mutations)
+        staging     → DRY_RUN
+        production  → LIVE
+        """
         env_mode_map = {
             "production": SandboxMode.LIVE,
             "staging": SandboxMode.DRY_RUN,
-            "development": SandboxMode.READ_ONLY,
+            "development": SandboxMode.EVAL,  # EVAL allows case writes; READ_ONLY was too restrictive
         }
-        mode = env_mode_map.get(settings.app_env, SandboxMode.READ_ONLY)
+        mode = env_mode_map.get(settings.app_env, SandboxMode.EVAL)
         return cls(mode=mode, run_id=run_id)
 
     def check(self, tool_name: str) -> None:
