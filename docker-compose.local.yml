@@ -136,7 +136,7 @@ services:
     container_name: bankguard-temporal
     restart: unless-stopped
     environment:
-      - DB=postgresql
+      - DB=postgres12
       - DB_PORT=5432
       - POSTGRES_USER=bankguard
       - POSTGRES_PWD=bankguard_dev_password
@@ -150,7 +150,7 @@ services:
         condition: service_healthy
 
   temporal-ui:
-    image: temporalio/ui:2.31
+    image: temporalio/ui:latest
     container_name: bankguard-temporal-ui
     restart: unless-stopped
     environment:

@@ -345,10 +345,11 @@ def gen_customers(n: int = 20) -> list[dict[str, Any]]:
     for i in range(n):
         first = random.choice(FIRST_NAMES)
         last = random.choice(LAST_NAMES)
+        cust_ref = f"CUST-{10001 + i}"
         customers.append(
             {
-                "id": str(uuid.uuid4()),
-                "customer_ref": f"CUST-{10001 + i}",
+                "id": uuid.uuid5(uuid.NAMESPACE_DNS, cust_ref),  # deterministic — same ref = same UUID
+                "customer_ref": cust_ref,
                 "full_name": f"{first} {last}",
                 "email": f"{first.lower()}.{last.lower()}@example.com",
                 "phone": f"+91 9{random.randint(100000000, 999999999)}",
@@ -366,10 +367,11 @@ def gen_accounts(customers: list[dict]) -> list[dict[str, Any]]:
         n_accounts = random.randint(1, 3)
         for _ in range(n_accounts):
             bank, ifsc = random.choice(BANKS)
+            acc_ref = f"ACC-{20001 + idx}"
             accounts.append(
                 {
-                    "id": str(uuid.uuid4()),
-                    "account_ref": f"ACC-{20001 + idx}",
+                    "id": uuid.uuid5(uuid.NAMESPACE_DNS, acc_ref),
+                    "account_ref": acc_ref,
                     "customer_id": cust["id"],
                     "account_type": random.choice(["SAVINGS", "CURRENT", "SAVINGS"]),
                     "balance": float(round(random.uniform(1000, 500000), 2)),
@@ -410,7 +412,7 @@ def gen_transactions(accounts: list[dict], n: int = 100) -> tuple[list[dict], li
         txn_status = status_map[scenario]
 
         initiated = _past(days=random.randint(0, 30), hours=random.randint(0, 23))
-        txn_id = str(uuid.uuid4())
+        txn_id = uuid.uuid5(uuid.NAMESPACE_DNS, f"TXN-{30001 + i}")
         txn_ref = f"TXN-{30001 + i}"
 
         transactions.append(
@@ -444,7 +446,7 @@ def gen_transactions(accounts: list[dict], n: int = 100) -> tuple[list[dict], li
             msg = msg_tpl.format(rail=rail, amount=f"{amount:,.2f}", bank=dst["bank_name"])
             events.append(
                 {
-                    "id": str(uuid.uuid4()),
+                    "id": uuid.uuid5(uuid.NAMESPACE_DNS, f"EVT-{30001 + i}-{j}"),
                     "transaction_id": txn_id,
                     "event_type": code,
                     "event_code": code,
@@ -465,6 +467,14 @@ def gen_transactions(accounts: list[dict], n: int = 100) -> tuple[list[dict], li
 
 
 async def seed(db_url: str) -> None:
+    import json
+    import uuid as _uuid
+    from datetime import date
+
+    def u(s: str) -> _uuid.UUID:
+        """Cast string to UUID — required by asyncpg for FK columns."""
+        return _uuid.UUID(s)
+
     log.info("connecting_to_database", url=db_url.split("@")[-1])
     conn = await asyncpg.connect(db_url)
 
@@ -528,8 +538,6 @@ async def seed(db_url: str) -> None:
         log.info("inserted_accounts", count=len(accounts))
 
         # ── Insert transactions ───────────────────────────────────
-        import json
-
         await conn.executemany(
             """
             INSERT INTO banking.transactions
@@ -600,7 +608,7 @@ async def seed(db_url: str) -> None:
                 p["title"],
                 p["category"],
                 p["content"],
-                p["effective_date"],
+                date.fromisoformat(p["effective_date"]),
                 "1.0",
                 True,
             )
